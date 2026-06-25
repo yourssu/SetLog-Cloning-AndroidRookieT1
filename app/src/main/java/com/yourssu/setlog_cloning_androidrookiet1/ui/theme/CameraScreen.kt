@@ -2,6 +2,7 @@ package com.yourssu.setlog_cloning_androidrookiet1.ui.theme
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -31,6 +32,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,13 +54,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
 @Composable
-fun CameraScreen(onClose: () -> Unit) {
+fun CameraScreen(roomName: String, onClose: () -> Unit, onVideoRecorded: (Bitmap?) -> Unit) {
     val context = LocalContext.current
+    val previewView = remember { PreviewView(context) }
     val calendar = remember { Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")) }
     val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
     val timeText = String.format(Locale.US, "%02d:00", currentHour)
@@ -71,6 +76,10 @@ fun CameraScreen(onClose: () -> Unit) {
         )
     }
 
+    var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var isRecording by remember { mutableStateOf(false) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
@@ -81,6 +90,15 @@ fun CameraScreen(onClose: () -> Unit) {
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            delay(1500)
+            isRecording = false
+            val thumbnail = previewView.bitmap
+            onVideoRecorded(thumbnail)
         }
     }
 
@@ -96,9 +114,18 @@ fun CameraScreen(onClose: () -> Unit) {
                 .padding(top = 16.dp, start = 8.dp, end = 8.dp)
                 .clip(RoundedCornerShape(32.dp))
                 .background(Color(0xFF4A4A4A))
+                .border(
+                    width = if (isRecording) 4.dp else 0.dp,
+                    color = if (isRecording) Color(0xFFFF33FF) else Color.Transparent,
+                    shape = RoundedCornerShape(32.dp)
+                )
         ) {
             if (hasCameraPermission) {
-                CameraPreview()
+                CameraPreview(
+                    lensFacing = lensFacing,
+                    zoomRatio = zoomRatio,
+                    previewView = previewView
+                )
             }
 
             Box(
@@ -117,81 +144,94 @@ fun CameraScreen(onClose: () -> Unit) {
                 )
             }
 
-            Text(
-                text = timeText,
-                color = Color.White,
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .rotate(90f)
-            )
-
-            Text(
-                text = "채팅방1",
-                color = Color.White,
-                fontSize = 18.sp,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 24.dp)
-                    .rotate(90f)
-            )
-
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
+            if (!isRecording) {
                 Text(
-                    text = ".5",
+                    text = timeText,
                     color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.rotate(90f)
-                )
-                Text(
-                    text = "1",
-                    color = Color(0xFFFFD700),
-                    fontSize = 16.sp,
+                    fontSize = 48.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.rotate(90f)
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .rotate(90f)
+                )
+
+                Text(
+                    text = roomName,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 24.dp)
+                        .rotate(90f)
                 )
             }
 
-            Box(
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .size(72.dp)
-                    .background(Color(0xFF5AC8FA), CircleShape)
-                    .border(4.dp, Color(0xFF0000FF), CircleShape),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize().rotate(90f)) {
-                    val eyeRadius = 4.dp.toPx()
-                    drawCircle(
-                        color = Color.Black,
-                        radius = eyeRadius,
-                        center = Offset(size.width * 0.35f, size.height * 0.45f)
-                    )
-                    drawCircle(
-                        color = Color.Black,
-                        radius = eyeRadius,
-                        center = Offset(size.width * 0.65f, size.height * 0.45f)
-                    )
-                    drawArc(
-                        color = Color.Black,
-                        startAngle = 20f,
-                        sweepAngle = 140f,
-                        useCenter = false,
-                        style = Stroke(
-                            width = 3.dp.toPx(),
-                            cap = StrokeCap.Round
-                        ),
-                        topLeft = Offset(size.width * 0.25f, size.height * 0.3f),
-                        size = Size(size.width * 0.5f, size.height * 0.5f)
-                    )
+                if (!isRecording) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        Text(
+                            text = ".5",
+                            color = if (zoomRatio == 0.5f) Color(0xFFFFD700) else Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = if (zoomRatio == 0.5f) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier
+                                .rotate(90f)
+                                .clickable { zoomRatio = 0.5f }
+                        )
+                        Text(
+                            text = "1",
+                            color = if (zoomRatio == 1f) Color(0xFFFFD700) else Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = if (zoomRatio == 1f) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier
+                                .rotate(90f)
+                                .clickable { zoomRatio = 1f }
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .background(Color(0xFF5AC8FA), CircleShape)
+                        .border(4.dp, Color(0xFFFFFF00), CircleShape)
+                        .clickable(enabled = !isRecording) { isRecording = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize().rotate(90f)) {
+                        val eyeRadius = 4.dp.toPx()
+                        drawCircle(
+                            color = Color.Black,
+                            radius = eyeRadius,
+                            center = Offset(size.width * 0.35f, size.height * 0.45f)
+                        )
+                        drawCircle(
+                            color = Color.Black,
+                            radius = eyeRadius,
+                            center = Offset(size.width * 0.65f, size.height * 0.45f)
+                        )
+                        drawArc(
+                            color = Color.Black,
+                            startAngle = 20f,
+                            sweepAngle = 140f,
+                            useCenter = false,
+                            style = Stroke(
+                                width = 3.dp.toPx(),
+                                cap = StrokeCap.Round
+                            ),
+                            topLeft = Offset(size.width * 0.25f, size.height * 0.3f),
+                            size = Size(size.width * 0.5f, size.height * 0.5f)
+                        )
+                    }
                 }
             }
         }
@@ -232,7 +272,14 @@ fun CameraScreen(onClose: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(52.dp)
-                    .background(Color(0xFF1C1C1E), CircleShape),
+                    .background(Color(0xFF1C1C1E), CircleShape)
+                    .clickable {
+                        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                            CameraSelector.LENS_FACING_FRONT
+                        } else {
+                            CameraSelector.LENS_FACING_BACK
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -247,32 +294,39 @@ fun CameraScreen(onClose: () -> Unit) {
 }
 
 @Composable
-fun CameraPreview() {
+fun CameraPreview(lensFacing: Int, zoomRatio: Float, previewView: PreviewView) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
+
+    LaunchedEffect(lensFacing) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = androidx.camera.core.Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            try {
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview)
+
+                val minZoom = camera?.cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
+                val safeZoom = if (zoomRatio < minZoom) minZoom else zoomRatio
+                camera?.cameraControl?.setZoomRatio(safeZoom)
+            } catch (e: Exception) {
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    LaunchedEffect(zoomRatio) {
+        val minZoom = camera?.cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
+        val safeZoom = if (zoomRatio < minZoom) minZoom else zoomRatio
+        camera?.cameraControl?.setZoomRatio(safeZoom)
+    }
 
     AndroidView(
-        factory = { ctx ->
-            val previewView = PreviewView(ctx)
-            val executor = ContextCompat.getMainExecutor(ctx)
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-                val preview = androidx.camera.core.Preview.Builder().build()
-                preview.setSurfaceProvider(previewView.surfaceProvider)
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview
-                    )
-                } catch (exc: Exception) {
-                }
-            }, executor)
-            previewView
-        },
+        factory = { previewView },
         modifier = Modifier.fillMaxSize()
     )
 }
@@ -280,5 +334,5 @@ fun CameraPreview() {
 @Preview(showBackground = true)
 @Composable
 fun CameraScreenPreview() {
-    CameraScreen(onClose = {})
+    CameraScreen(roomName = "기머쮜", onClose = {}, onVideoRecorded = {})
 }

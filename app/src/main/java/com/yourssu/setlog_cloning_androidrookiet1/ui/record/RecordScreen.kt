@@ -95,7 +95,8 @@ enum class AppScreen {
 data class SetlogMember(
     val name: String,
     val color: Color,
-    val isCurrentUser: Boolean
+    val isCurrentUser: Boolean,
+    val recordedHours: List<Int> = emptyList()
 )
 
 @Composable
@@ -105,16 +106,16 @@ fun RecordScreen(
 ) {
     val context = LocalContext.current
     var currentScreen by remember { mutableStateOf(AppScreen.MAIN) }
-    var hasRecordedVideo by remember { mutableStateOf(false) }
-    var recordedThumbnail by remember { mutableStateOf<Bitmap?>(null) }
     var currentRoomName by remember { mutableStateOf("방1") }
+
+    var myRecords by remember { mutableStateOf(mapOf<Int, Pair<Bitmap?, String>>()) }
 
     var showMenu by remember { mutableStateOf(false) }
     var showRoomMenu by remember { mutableStateOf(false) }
     var showHistoryBottomSheet by remember { mutableStateOf(false) }
     var selectedHistoryDate by remember { mutableStateOf<LocalDate?>(null) }
 
-    var captionText by remember { mutableStateOf("") }
+    var editCaptionText by remember { mutableStateOf("") }
     var isEditingCaption by remember { mutableStateOf(false) }
     var expandedVideo by remember { mutableStateOf(false) }
 
@@ -145,8 +146,10 @@ fun RecordScreen(
                 roomName = currentRoomName,
                 onClose = { currentScreen = AppScreen.MAIN },
                 onVideoRecorded = { thumbnail ->
-                    recordedThumbnail = thumbnail
-                    hasRecordedVideo = true
+                    myRecords = myRecords.toMutableMap().apply {
+                        put(currentHour, Pair(thumbnail, ""))
+                    }
+                    viewedHour = currentHour
                     currentScreen = AppScreen.MAIN
                 }
             )
@@ -166,9 +169,9 @@ fun RecordScreen(
                 )
             } else {
                 val memberList = listOf(
-                    SetlogMember("사용자1", Color(0xFFFF33FF), false),
-                    SetlogMember("사용자2", Color(0xFF5AC8FA), false),
-                    SetlogMember(currentUserName, Color(0xFF5AC8FA), true)
+                    SetlogMember("사용자1", Color(0xFFFF33FF), false, emptyList()),
+                    SetlogMember("사용자2", Color(0xFF5AC8FA), false, emptyList()),
+                    SetlogMember(currentUserName, Color(0xFF5AC8FA), true, myRecords.keys.toList())
                 )
 
                 Box(
@@ -179,7 +182,7 @@ fun RecordScreen(
                             detectTapGestures { offset ->
                                 val isLeft = offset.x < size.width / 2
                                 if (isLeft) {
-                                    if (viewedHour > 0) {
+                                    if (viewedHour > 4) {
                                         viewedHour -= 1
                                     }
                                 } else {
@@ -313,6 +316,12 @@ fun RecordScreen(
                                 var cardHeightDp by remember { mutableStateOf(0.dp) }
                                 val density = LocalDensity.current
 
+                                val hasRecordThisHour = if (member.isCurrentUser) {
+                                    myRecords.containsKey(viewedHour)
+                                } else {
+                                    member.recordedHours.contains(viewedHour)
+                                }
+
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -325,23 +334,26 @@ fun RecordScreen(
                                                 cardHeightDp = coordinates.size.height.toDp()
                                             }
                                         }
-                                        .clickable(enabled = member.isCurrentUser && hasRecordedVideo && !isEditingCaption) {
+                                        .clickable(enabled = member.isCurrentUser && hasRecordThisHour && !isEditingCaption) {
                                             expandedVideo = true
                                         }
                                 ) {
-                                    if (member.isCurrentUser && hasRecordedVideo) {
-                                        if (recordedThumbnail != null) {
-                                            Image(
-                                                bitmap = recordedThumbnail!!.asImageBitmap(),
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
+                                    if (hasRecordThisHour) {
+                                        if (member.isCurrentUser) {
+                                            val thumbnail = myRecords[viewedHour]?.first
+                                            if (thumbnail != null) {
+                                                Image(
+                                                    bitmap = thumbnail.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
                                         } else {
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .background(Color(0xFFEBEBEB))
+                                                    .background(Color(0xFFD1D1D6))
                                             )
                                         }
 
@@ -364,24 +376,27 @@ fun RecordScreen(
                                     Column(
                                         modifier = Modifier
                                             .align(Alignment.Center)
-                                            .offset(y = if (member.isCurrentUser && !hasRecordedVideo) (-16).dp else 0.dp),
+                                            .offset(y = if (member.isCurrentUser && !hasRecordThisHour) (-16).dp else 0.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
                                             text = timeText,
-                                            color = if (member.isCurrentUser && hasRecordedVideo) Color.White else Color(0xFFD1D1D6),
+                                            color = if (hasRecordThisHour) Color.White else Color(0xFFD1D1D6),
                                             fontSize = 32.sp,
                                             fontWeight = FontWeight.Black
                                         )
 
-                                        if (member.isCurrentUser && hasRecordedVideo && captionText.isNotEmpty() && !isEditingCaption) {
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Text(
-                                                text = captionText,
-                                                color = Color.White,
-                                                fontSize = 18.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                        if (member.isCurrentUser && hasRecordThisHour && !isEditingCaption) {
+                                            val caption = myRecords[viewedHour]?.second
+                                            if (!caption.isNullOrEmpty()) {
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Text(
+                                                    text = caption,
+                                                    color = Color.White,
+                                                    fontSize = 18.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
                                     }
 
@@ -407,24 +422,32 @@ fun RecordScreen(
                                     }
 
                                     if (member.isCurrentUser) {
-                                        if (hasRecordedVideo) {
+                                        if (hasRecordThisHour) {
                                             if (isEditingCaption) {
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxSize()
                                                         .background(Color(0x99000000))
-                                                        .clickable { isEditingCaption = false },
+                                                        .clickable {
+                                                            val record = myRecords[viewedHour]
+                                                            if (record != null) {
+                                                                myRecords = myRecords.toMutableMap().apply {
+                                                                    put(viewedHour, Pair(record.first, editCaptionText))
+                                                                }
+                                                            }
+                                                            isEditingCaption = false
+                                                        },
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     BasicTextField(
-                                                        value = captionText,
-                                                        onValueChange = { captionText = it },
+                                                        value = editCaptionText,
+                                                        onValueChange = { editCaptionText = it },
                                                         textStyle = TextStyle(color = Color.White, fontSize = 18.sp, textAlign = TextAlign.Center),
                                                         modifier = Modifier
                                                             .fillMaxWidth()
                                                             .padding(horizontal = 16.dp),
                                                         decorationBox = { innerTextField ->
-                                                            if (captionText.isEmpty()) {
+                                                            if (editCaptionText.isEmpty()) {
                                                                 Text(
                                                                     text = "캡션을 입력하세요",
                                                                     color = Color.LightGray,
@@ -439,118 +462,117 @@ fun RecordScreen(
                                                 }
                                             }
                                         } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .padding(bottom = 24.dp)
-                                                    .background(Color.White, RoundedCornerShape(20.dp))
-                                                    .border(BorderStroke(1.dp, Color(0xFFE5E5EA)), RoundedCornerShape(20.dp))
-                                                    .clickable { currentScreen = AppScreen.CAMERA }
-                                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "눌러서 촬영",
-                                                    color = Color.Black,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
+                                            if (viewedHour == currentHour) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(bottom = 24.dp)
+                                                        .background(Color.White, RoundedCornerShape(20.dp))
+                                                        .border(BorderStroke(1.dp, Color(0xFFE5E5EA)), RoundedCornerShape(20.dp))
+                                                        .clickable { currentScreen = AppScreen.CAMERA }
+                                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "눌러서 촬영",
+                                                        color = Color.Black,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
                                             }
                                         }
 
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(8.dp)
-                                        ) {
+                                        if (hasRecordThisHour) {
                                             Box(
                                                 modifier = Modifier
-                                                    .clip(CircleShape)
-                                                    .clickable {
-                                                        if (hasRecordedVideo) {
-                                                            showMenu = true
-                                                        } else {
-                                                            Toast.makeText(context, "영상을 먼저 촬영해주세요!", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
+                                                    .align(Alignment.BottomEnd)
                                                     .padding(8.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MoreVert,
-                                                    contentDescription = null,
-                                                    tint = if (hasRecordedVideo) Color.White else Color.Gray,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-
-                                            if (showMenu) {
-                                                Popup(
-                                                    alignment = Alignment.BottomEnd,
-                                                    offset = IntOffset(0, -120),
-                                                    onDismissRequest = { showMenu = false },
-                                                    properties = PopupProperties(focusable = true)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .clickable { showMenu = true }
+                                                        .padding(8.dp)
                                                 ) {
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .background(Color.White, RoundedCornerShape(16.dp))
-                                                            .border(1.dp, Color(0xFFE5E5EA), RoundedCornerShape(16.dp))
-                                                            .padding(vertical = 8.dp)
-                                                            .width(150.dp)
+                                                    Icon(
+                                                        imageVector = Icons.Default.MoreVert,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                }
+
+                                                if (showMenu) {
+                                                    Popup(
+                                                        alignment = Alignment.BottomEnd,
+                                                        offset = IntOffset(0, -120),
+                                                        onDismissRequest = { showMenu = false },
+                                                        properties = PopupProperties(focusable = true)
                                                     ) {
-                                                        Row(
+                                                        Column(
                                                             modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .clickable {
-                                                                    hasRecordedVideo = false
-                                                                    recordedThumbnail = null
-                                                                    captionText = ""
-                                                                    showMenu = false
-                                                                }
-                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
+                                                                .background(Color.White, RoundedCornerShape(16.dp))
+                                                                .border(1.dp, Color(0xFFE5E5EA), RoundedCornerShape(16.dp))
+                                                                .padding(vertical = 8.dp)
+                                                                .width(150.dp)
                                                         ) {
-                                                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFFF5555), modifier = Modifier.size(20.dp))
-                                                            Spacer(Modifier.width(12.dp))
-                                                            Text("삭제", color = Color(0xFFFF5555), fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                                        }
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clickable {
+                                                                        myRecords = myRecords.toMutableMap().apply { remove(viewedHour) }
+                                                                        showMenu = false
+                                                                    }
+                                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFFF5555), modifier = Modifier.size(20.dp))
+                                                                Spacer(Modifier.width(12.dp))
+                                                                Text("삭제", color = Color(0xFFFF5555), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                            }
 
-                                                        Row(
-                                                            modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .clickable {
-                                                                    isEditingCaption = true
-                                                                    showMenu = false
-                                                                }
-                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Icon(Icons.Outlined.Edit, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                                                            Spacer(Modifier.width(12.dp))
-                                                            Text("캡션 수정", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                                        }
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clickable {
+                                                                        editCaptionText = myRecords[viewedHour]?.second ?: ""
+                                                                        isEditingCaption = true
+                                                                        showMenu = false
+                                                                    }
+                                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Icon(Icons.Outlined.Edit, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                                                Spacer(Modifier.width(12.dp))
+                                                                Text("캡션 수정", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                            }
 
-                                                        Row(
-                                                            modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .clickable {
-                                                                    val sdf = SimpleDateFormat("yyyy-MM-dd-HH", Locale.KOREA)
-                                                                    val dateHour = sdf.format(Date())
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clickable {
+                                                                        val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+                                                                        cal.set(Calendar.HOUR_OF_DAY, viewedHour)
+                                                                        val sdf = SimpleDateFormat("yyyy-MM-dd-HH", Locale.KOREA)
+                                                                        val dateHourStr = sdf.format(cal.time)
 
-                                                                    roomViewModel.uploadRecord(
-                                                                        roomId = currentRoomName,
-                                                                        caption = captionText,
-                                                                        dateHour = dateHour,
-                                                                        onSuccess = {
-                                                                            Toast.makeText(context, "기록이 서버에 저장되었습니다!", Toast.LENGTH_SHORT).show()
-                                                                        }
-                                                                    )
-                                                                    showMenu = false
-                                                                }
-                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Icon(Icons.Outlined.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                                                            Spacer(Modifier.width(12.dp))
-                                                            Text("저장", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                                        roomViewModel.uploadRecord(
+                                                                            roomId = currentRoomName,
+                                                                            caption = myRecords[viewedHour]?.second ?: "",
+                                                                            dateHour = dateHourStr,
+                                                                            onSuccess = {
+                                                                                Toast.makeText(context, "기록이 서버에 저장되었습니다!", Toast.LENGTH_SHORT).show()
+                                                                            }
+                                                                        )
+                                                                        showMenu = false
+                                                                    }
+                                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Icon(Icons.Outlined.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                                                Spacer(Modifier.width(12.dp))
+                                                                Text("저장", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -574,65 +596,69 @@ fun RecordScreen(
                     )
                 }
 
-                if (expandedVideo && recordedThumbnail != null) {
-                    var progress by remember { mutableFloatStateOf(0f) }
+                if (expandedVideo) {
+                    val thumbnail = myRecords[viewedHour]?.first
+                    if (thumbnail != null) {
+                        var progress by remember { mutableFloatStateOf(0f) }
 
-                    LaunchedEffect(Unit) {
-                        val startTime = System.currentTimeMillis()
-                        while(progress < 1f) {
-                            delay(16)
-                            progress = (System.currentTimeMillis() - startTime) / 3000f
+                        LaunchedEffect(Unit) {
+                            val startTime = System.currentTimeMillis()
+                            while(progress < 1f) {
+                                delay(16)
+                                progress = (System.currentTimeMillis() - startTime) / 3000f
+                            }
+                            expandedVideo = false
                         }
-                        expandedVideo = false
-                    }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xCC000000))
-                            .clickable { expandedVideo = false },
-                        contentAlignment = Alignment.Center
-                    ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.85f)
-                                .aspectRatio(0.6f)
-                                .clip(RoundedCornerShape(32.dp))
-                                .background(Color.Black)
+                                .fillMaxSize()
+                                .background(Color(0xCC000000))
+                                .clickable { expandedVideo = false },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Image(
-                                bitmap = recordedThumbnail!!.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-
-                            if (captionText.isNotEmpty()) {
-                                Text(
-                                    text = captionText,
-                                    color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .padding(horizontal = 24.dp)
-                                )
-                            }
-
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .align(Alignment.BottomCenter)
-                                    .background(Color.White.copy(alpha = 0.3f))
+                                    .fillMaxWidth(0.85f)
+                                    .aspectRatio(0.6f)
+                                    .clip(RoundedCornerShape(32.dp))
+                                    .background(Color.Black)
                             ) {
+                                Image(
+                                    bitmap = thumbnail.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+
+                                val caption = myRecords[viewedHour]?.second ?: ""
+                                if (caption.isNotEmpty()) {
+                                    Text(
+                                        text = caption,
+                                        color = Color.White,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .padding(horizontal = 24.dp)
+                                    )
+                                }
+
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth(progress)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFFFF33FF))
-                                )
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .align(Alignment.BottomCenter)
+                                        .background(Color.White.copy(alpha = 0.3f))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(progress)
+                                            .fillMaxHeight()
+                                            .background(Color(0xFFFF33FF))
+                                    )
+                                }
                             }
                         }
                     }
@@ -655,9 +681,9 @@ fun HistoryPagerView(
     val pagerState = rememberPagerState(pageCount = { historyTimes.size })
 
     val memberList = listOf(
-        SetlogMember("사용자1", Color(0xFFFF33FF), false),
-        SetlogMember("사용자2", Color(0xFF5AC8FA), false),
-        SetlogMember(currentUserName, Color(0xFF5AC8FA), true)
+        SetlogMember("사용자1", Color(0xFFFF33FF), false, emptyList()),
+        SetlogMember("사용자2", Color(0xFF5AC8FA), false, emptyList()),
+        SetlogMember(currentUserName, Color(0xFF5AC8FA), true, emptyList())
     )
 
     Column(
@@ -810,21 +836,23 @@ fun FloatingBall(
     var speedX by remember { mutableFloatStateOf((Random.nextFloat() * 45f + 30f) * if (Random.nextBoolean()) 1f else -1f) }
     var speedY by remember { mutableFloatStateOf((Random.nextFloat() * 45f + 30f) * if (Random.nextBoolean()) 1f else -1f) }
 
-    val presetColors = listOf(
-        Color(0xFF5A6CFA),
-        Color(0xFFE25AFA),
-        Color(0xFFFAAD5A)
-    )
-
-    val animatedColor = presetColors[memberIndex % presetColors.size]
+    var colorStep by remember { mutableStateOf(0) }
 
     LaunchedEffect(containerWidth, containerHeight) {
         var lastTime = withFrameNanos { it }
+        var colorTimer = 0f
 
         while (true) {
             withFrameNanos { time ->
                 val deltaSec = (time - lastTime) / 1_000_000_000f
                 lastTime = time
+
+                colorTimer += deltaSec
+                if (colorTimer >= 0.8f) {
+                    colorTimer = 0f
+                    val membersCount = if (totalMembers > 0) totalMembers else 1
+                    colorStep = (colorStep + 1) % membersCount
+                }
 
                 var nextX = offsetX + (speedX * deltaSec)
                 var nextY = offsetY + (speedY * deltaSec)
@@ -850,6 +878,12 @@ fun FloatingBall(
             }
         }
     }
+
+    val safeTotalMembers = if (totalMembers > 0) totalMembers else 1
+    val baseHue = (360f / safeTotalMembers) * memberIndex
+    val stepHue = (360f / safeTotalMembers) * colorStep
+    val currentHue = (baseHue + stepHue) % 360f
+    val animatedColor = Color.hsv(currentHue, 0.65f, 0.9f)
 
     Box(
         modifier = Modifier.fillMaxSize()

@@ -1,4 +1,4 @@
-package com.yourssu.setlog_cloning_androidrookiet1.ui.theme
+package com.yourssu.setlog_cloning_androidrookiet1.ui.record
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background

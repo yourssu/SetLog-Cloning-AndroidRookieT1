@@ -1,10 +1,11 @@
-package com.yourssu.setlog_cloning_androidrookiet1.ui.theme
+package com.yourssu.setlog_cloning_androidrookiet1.ui.record
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -297,7 +298,7 @@ fun CameraScreen(roomName: String, onClose: () -> Unit, onVideoRecorded: (Bitmap
 fun CameraPreview(lensFacing: Int, zoomRatio: Float, previewView: PreviewView) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
 
     LaunchedEffect(lensFacing) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)

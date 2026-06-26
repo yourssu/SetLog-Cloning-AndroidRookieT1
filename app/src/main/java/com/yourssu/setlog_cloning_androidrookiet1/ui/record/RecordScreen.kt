@@ -1,4 +1,4 @@
-package com.yourssu.setlog_cloning_androidrookiet1.ui.theme
+package com.yourssu.setlog_cloning_androidrookiet1.ui.record
 
 import android.graphics.Bitmap
 import android.widget.Toast
@@ -61,6 +61,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -548,8 +549,8 @@ fun RecordScreen() {
 fun FloatingBall(
     memberIndex: Int,
     totalMembers: Int,
-    containerWidth: androidx.compose.ui.unit.Dp,
-    containerHeight: androidx.compose.ui.unit.Dp
+    containerWidth: Dp,
+    containerHeight: Dp
 ) {
     val ballSize = 64.dp
     val maxOffsetX = ((containerWidth - ballSize) / 2).value

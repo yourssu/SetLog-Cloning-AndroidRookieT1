@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -34,12 +37,15 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ModeComment
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -67,8 +74,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yourssu.setlog_cloning_androidrookiet1.ui.room.RoomViewModel
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
@@ -85,21 +99,45 @@ data class SetlogMember(
 )
 
 @Composable
-fun RecordScreen() {
+fun RecordScreen(
+    currentUserName: String = "나",
+    roomViewModel: RoomViewModel = viewModel()
+) {
     val context = LocalContext.current
     var currentScreen by remember { mutableStateOf(AppScreen.MAIN) }
     var hasRecordedVideo by remember { mutableStateOf(false) }
     var recordedThumbnail by remember { mutableStateOf<Bitmap?>(null) }
-    var currentRoomName by remember { mutableStateOf("기머쮜") }
+    var currentRoomName by remember { mutableStateOf("방1") }
 
     var showMenu by remember { mutableStateOf(false) }
+    var showRoomMenu by remember { mutableStateOf(false) }
+    var showHistoryBottomSheet by remember { mutableStateOf(false) }
+    var selectedHistoryDate by remember { mutableStateOf<LocalDate?>(null) }
+
     var captionText by remember { mutableStateOf("") }
     var isEditingCaption by remember { mutableStateOf(false) }
     var expandedVideo by remember { mutableStateOf(false) }
 
-    val calendar = remember { Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")) }
-    val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
-    val timeText = String.format(Locale.US, "%02d:00", currentHour)
+    var currentHour by remember { mutableIntStateOf(Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).get(Calendar.HOUR_OF_DAY)) }
+    var viewedHour by remember { mutableIntStateOf(currentHour) }
+    val timeText = String.format(Locale.US, "%02d:00", viewedHour)
+
+    val recordedDates by roomViewModel.recordedDates.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000L)
+            val newHour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).get(Calendar.HOUR_OF_DAY)
+            if (newHour != currentHour) {
+                currentHour = newHour
+                viewedHour = newHour
+            }
+        }
+    }
+
+    LaunchedEffect(currentRoomName) {
+        roomViewModel.observeRecords(currentRoomName)
+    }
 
     when (currentScreen) {
         AppScreen.CAMERA -> {
@@ -120,352 +158,400 @@ fun RecordScreen() {
             )
         }
         AppScreen.MAIN -> {
-            val memberList = listOf(
-                SetlogMember("apple_user지원", Color(0xFFFF33FF), false),
-                SetlogMember("헤빈", Color(0xFF5AC8FA), false),
-                SetlogMember("경은", Color(0xFF5AC8FA), true)
-            )
+            if (selectedHistoryDate != null) {
+                HistoryPagerView(
+                    date = selectedHistoryDate!!,
+                    onClose = { selectedHistoryDate = null },
+                    currentUserName = currentUserName
+                )
+            } else {
+                val memberList = listOf(
+                    SetlogMember("사용자1", Color(0xFFFF33FF), false),
+                    SetlogMember("사용자2", Color(0xFF5AC8FA), false),
+                    SetlogMember(currentUserName, Color(0xFF5AC8FA), true)
+                )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0F0F10))
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFF2F2F7))
+                        .pointerInput(currentHour) {
+                            detectTapGestures { offset ->
+                                val isLeft = offset.x < size.width / 2
+                                if (isLeft) {
+                                    if (viewedHour > 0) {
+                                        viewedHour -= 1
+                                    }
+                                } else {
+                                    if (viewedHour < currentHour) {
+                                        viewedHour += 1
+                                    }
+                                }
+                            }
+                        }
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(Color(0xFF141414), CircleShape)
-                                .border(1.dp, Color(0x22FFFFFF), CircleShape)
-                                .align(Alignment.CenterStart),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowLeft,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .background(Color.Transparent, RoundedCornerShape(20.dp))
-                                .border(BorderStroke(1.dp, Color(0x22FFFFFF)), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .align(Alignment.Center)
-                        ) {
-                            Text(
-                                text = currentRoomName,
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = null,
-                                tint = Color.Gray,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.align(Alignment.CenterEnd)
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 16.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .background(Color(0xFF141414), CircleShape)
-                                    .border(1.dp, Color(0x22FFFFFF), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .border(2.dp, Color.White, RoundedCornerShape(5.dp))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.North,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .align(Alignment.Center)
-                                            .offset(y = (-3).dp)
-                                            .background(Color(0xFF141414))
-                                    )
-                                }
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .background(Color(0xFF141414), CircleShape)
-                                    .border(1.dp, Color(0x22FFFFFF), CircleShape)
-                                    .clickable { currentScreen = AppScreen.CHAT },
+                                    .background(Color.White, CircleShape)
+                                    .border(1.dp, Color(0xFFE5E5EA), CircleShape)
+                                    .align(Alignment.CenterStart),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.ModeComment,
+                                    imageVector = Icons.Default.KeyboardArrowLeft,
                                     contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(28.dp)
                                 )
                             }
-                        }
-                    }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp)
-                            .padding(bottom = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        memberList.forEachIndexed { index, member ->
-                            var cardWidthDp by remember { mutableStateOf(0.dp) }
-                            var cardHeightDp by remember { mutableStateOf(0.dp) }
-                            val density = LocalDensity.current
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF1C1C1E), RoundedCornerShape(24.dp))
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .onGloballyPositioned { coordinates ->
-                                        with(density) {
-                                            cardWidthDp = coordinates.size.width.toDp()
-                                            cardHeightDp = coordinates.size.height.toDp()
-                                        }
-                                    }
-                                    .clickable(enabled = member.isCurrentUser && hasRecordedVideo && !isEditingCaption) {
-                                        expandedVideo = true
-                                    }
-                            ) {
-                                if (member.isCurrentUser && hasRecordedVideo) {
-                                    if (recordedThumbnail != null) {
-                                        Image(
-                                            bitmap = recordedThumbnail!!.asImageBitmap(),
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(Color(0xFF2C2C2E))
-                                        )
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(Color(0x33000000))
-                                    )
-                                } else {
-                                    if (cardWidthDp > 0.dp && cardHeightDp > 0.dp) {
-                                        FloatingBall(
-                                            memberIndex = index,
-                                            totalMembers = memberList.size,
-                                            containerWidth = cardWidthDp,
-                                            containerHeight = cardHeightDp
-                                        )
-                                    }
-                                }
-
-                                Column(
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .offset(y = if (member.isCurrentUser && !hasRecordedVideo) (-16).dp else 0.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = timeText,
-                                        color = if (member.isCurrentUser && hasRecordedVideo) Color.White else Color(0xFF2C2C2E),
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-
-                                    if (member.isCurrentUser && hasRecordedVideo && captionText.isNotEmpty() && !isEditingCaption) {
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = captionText,
-                                            color = Color.White,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
-
+                            Box(modifier = Modifier.align(Alignment.Center)) {
                                 Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .padding(16.dp)
-                                        .align(Alignment.TopStart),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .background(Color.White, RoundedCornerShape(20.dp))
+                                        .border(BorderStroke(1.dp, Color(0xFFE5E5EA)), RoundedCornerShape(20.dp))
+                                        .clickable { showRoomMenu = true }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.LightGray)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = member.name,
-                                        color = Color.Gray,
+                                        text = currentRoomName,
+                                        color = Color.Black,
                                         fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = Color.DarkGray,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
 
-                                if (member.isCurrentUser) {
-                                    if (hasRecordedVideo) {
-                                        if (isEditingCaption) {
+                                DropdownMenu(
+                                    expanded = showRoomMenu,
+                                    onDismissRequest = { showRoomMenu = false },
+                                    modifier = Modifier.background(Color.White)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("기록", color = Color.Black) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            showHistoryBottomSheet = true
+                                        }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .background(Color.White, CircleShape)
+                                        .border(1.dp, Color(0xFFE5E5EA), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .border(2.dp, Color.Black, RoundedCornerShape(5.dp))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.North,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .align(Alignment.Center)
+                                                .offset(y = (-3).dp)
+                                                .background(Color.White)
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .background(Color.White, CircleShape)
+                                        .border(1.dp, Color(0xFFE5E5EA), CircleShape)
+                                        .clickable { currentScreen = AppScreen.CHAT },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ModeComment,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp)
+                                .padding(bottom = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            memberList.forEachIndexed { index, member ->
+                                var cardWidthDp by remember { mutableStateOf(0.dp) }
+                                var cardHeightDp by remember { mutableStateOf(0.dp) }
+                                val density = LocalDensity.current
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFEBEBEB), RoundedCornerShape(24.dp))
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .onGloballyPositioned { coordinates ->
+                                            with(density) {
+                                                cardWidthDp = coordinates.size.width.toDp()
+                                                cardHeightDp = coordinates.size.height.toDp()
+                                            }
+                                        }
+                                        .clickable(enabled = member.isCurrentUser && hasRecordedVideo && !isEditingCaption) {
+                                            expandedVideo = true
+                                        }
+                                ) {
+                                    if (member.isCurrentUser && hasRecordedVideo) {
+                                        if (recordedThumbnail != null) {
+                                            Image(
+                                                bitmap = recordedThumbnail!!.asImageBitmap(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .background(Color(0x99000000))
-                                                    .clickable { isEditingCaption = false },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                BasicTextField(
-                                                    value = captionText,
-                                                    onValueChange = { captionText = it },
-                                                    textStyle = TextStyle(color = Color.White, fontSize = 18.sp, textAlign = TextAlign.Center),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 16.dp),
-                                                    decorationBox = { innerTextField ->
-                                                        if (captionText.isEmpty()) {
-                                                            Text(
-                                                                text = "캡션을 입력하세요",
-                                                                color = Color.LightGray,
-                                                                fontSize = 18.sp,
-                                                                textAlign = TextAlign.Center,
-                                                                modifier = Modifier.fillMaxWidth()
-                                                            )
-                                                        }
-                                                        innerTextField()
-                                                    }
-                                                )
-                                            }
+                                                    .background(Color(0xFFEBEBEB))
+                                            )
                                         }
-                                    } else {
+
                                         Box(
                                             modifier = Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .padding(bottom = 24.dp)
-                                                .background(Color(0x33FFFFFF), RoundedCornerShape(20.dp))
-                                                .border(BorderStroke(1.dp, Color(0x22FFFFFF)), RoundedCornerShape(20.dp))
-                                                .clickable { currentScreen = AppScreen.CAMERA }
-                                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                        ) {
+                                                .fillMaxSize()
+                                                .background(Color(0x33000000))
+                                        )
+                                    } else {
+                                        if (cardWidthDp > 0.dp && cardHeightDp > 0.dp) {
+                                            FloatingBall(
+                                                memberIndex = index,
+                                                totalMembers = memberList.size,
+                                                containerWidth = cardWidthDp,
+                                                containerHeight = cardHeightDp
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .offset(y = if (member.isCurrentUser && !hasRecordedVideo) (-16).dp else 0.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = timeText,
+                                            color = if (member.isCurrentUser && hasRecordedVideo) Color.White else Color(0xFFD1D1D6),
+                                            fontSize = 32.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+
+                                        if (member.isCurrentUser && hasRecordedVideo && captionText.isNotEmpty() && !isEditingCaption) {
+                                            Spacer(modifier = Modifier.height(12.dp))
                                             Text(
-                                                text = "눌러서 촬영",
+                                                text = captionText,
                                                 color = Color.White,
-                                                fontSize = 12.sp,
+                                                fontSize = 18.sp,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
                                     }
 
-                                    Box(
+                                    Row(
                                         modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(8.dp)
+                                            .padding(16.dp)
+                                            .align(Alignment.TopStart),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Box(
                                             modifier = Modifier
+                                                .size(24.dp)
                                                 .clip(CircleShape)
-                                                .clickable {
-                                                    if (hasRecordedVideo) {
-                                                        showMenu = true
-                                                    } else {
-                                                        Toast.makeText(context, "영상을 먼저 촬영해주세요!", Toast.LENGTH_SHORT).show()
-                                                    }
+                                                .background(Color.White)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = member.name,
+                                            color = Color.DarkGray,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+
+                                    if (member.isCurrentUser) {
+                                        if (hasRecordedVideo) {
+                                            if (isEditingCaption) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(Color(0x99000000))
+                                                        .clickable { isEditingCaption = false },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    BasicTextField(
+                                                        value = captionText,
+                                                        onValueChange = { captionText = it },
+                                                        textStyle = TextStyle(color = Color.White, fontSize = 18.sp, textAlign = TextAlign.Center),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 16.dp),
+                                                        decorationBox = { innerTextField ->
+                                                            if (captionText.isEmpty()) {
+                                                                Text(
+                                                                    text = "캡션을 입력하세요",
+                                                                    color = Color.LightGray,
+                                                                    fontSize = 18.sp,
+                                                                    textAlign = TextAlign.Center,
+                                                                    modifier = Modifier.fillMaxWidth()
+                                                                )
+                                                            }
+                                                            innerTextField()
+                                                        }
+                                                    )
                                                 }
-                                                .padding(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = null,
-                                                tint = if (hasRecordedVideo) Color.White else Color.Gray,
-                                                modifier = Modifier.size(24.dp)
-                                            )
+                                            }
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(bottom = 24.dp)
+                                                    .background(Color.White, RoundedCornerShape(20.dp))
+                                                    .border(BorderStroke(1.dp, Color(0xFFE5E5EA)), RoundedCornerShape(20.dp))
+                                                    .clickable { currentScreen = AppScreen.CAMERA }
+                                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "눌러서 촬영",
+                                                    color = Color.Black,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
 
-                                        if (showMenu) {
-                                            Popup(
-                                                alignment = Alignment.BottomEnd,
-                                                offset = IntOffset(0, -120),
-                                                onDismissRequest = { showMenu = false },
-                                                properties = PopupProperties(focusable = true)
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        if (hasRecordedVideo) {
+                                                            showMenu = true
+                                                        } else {
+                                                            Toast.makeText(context, "영상을 먼저 촬영해주세요!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                    .padding(8.dp)
                                             ) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .background(Color(0xCC1A1A1A), RoundedCornerShape(16.dp))
-                                                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp))
-                                                        .padding(vertical = 8.dp)
-                                                        .width(150.dp)
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = null,
+                                                    tint = if (hasRecordedVideo) Color.White else Color.Gray,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+
+                                            if (showMenu) {
+                                                Popup(
+                                                    alignment = Alignment.BottomEnd,
+                                                    offset = IntOffset(0, -120),
+                                                    onDismissRequest = { showMenu = false },
+                                                    properties = PopupProperties(focusable = true)
                                                 ) {
-                                                    Row(
+                                                    Column(
                                                         modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable {
-                                                                hasRecordedVideo = false
-                                                                recordedThumbnail = null
-                                                                captionText = ""
-                                                                showMenu = false
-                                                            }
-                                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
+                                                            .background(Color.White, RoundedCornerShape(16.dp))
+                                                            .border(1.dp, Color(0xFFE5E5EA), RoundedCornerShape(16.dp))
+                                                            .padding(vertical = 8.dp)
+                                                            .width(150.dp)
                                                     ) {
-                                                        Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFFF5555), modifier = Modifier.size(20.dp))
-                                                        Spacer(Modifier.width(12.dp))
-                                                        Text("삭제", color = Color(0xFFFF5555), fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                                    }
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    hasRecordedVideo = false
+                                                                    recordedThumbnail = null
+                                                                    captionText = ""
+                                                                    showMenu = false
+                                                                }
+                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFFF5555), modifier = Modifier.size(20.dp))
+                                                            Spacer(Modifier.width(12.dp))
+                                                            Text("삭제", color = Color(0xFFFF5555), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                        }
 
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable {
-                                                                isEditingCaption = true
-                                                                showMenu = false
-                                                            }
-                                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(Icons.Outlined.Edit, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                                                        Spacer(Modifier.width(12.dp))
-                                                        Text("캡션 수정", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                                    }
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    isEditingCaption = true
+                                                                    showMenu = false
+                                                                }
+                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(Icons.Outlined.Edit, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                                            Spacer(Modifier.width(12.dp))
+                                                            Text("캡션 수정", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                        }
 
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable {
-                                                                Toast.makeText(context, "갤러리에 저장되었습니다.", Toast.LENGTH_SHORT).show()
-                                                                showMenu = false
-                                                            }
-                                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(Icons.Outlined.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                                                        Spacer(Modifier.width(12.dp))
-                                                        Text("저장", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    val sdf = SimpleDateFormat("yyyy-MM-dd-HH", Locale.KOREA)
+                                                                    val dateHour = sdf.format(Date())
+
+                                                                    roomViewModel.uploadRecord(
+                                                                        roomId = currentRoomName,
+                                                                        caption = captionText,
+                                                                        dateHour = dateHour,
+                                                                        onSuccess = {
+                                                                            Toast.makeText(context, "기록이 서버에 저장되었습니다!", Toast.LENGTH_SHORT).show()
+                                                                        }
+                                                                    )
+                                                                    showMenu = false
+                                                                }
+                                                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(Icons.Outlined.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                                                            Spacer(Modifier.width(12.dp))
+                                                            Text("저장", color = Color.Black, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -476,66 +562,228 @@ fun RecordScreen() {
                         }
                     }
                 }
-            }
 
-            if (expandedVideo && recordedThumbnail != null) {
-                var progress by remember { mutableFloatStateOf(0f) }
-
-                LaunchedEffect(Unit) {
-                    val startTime = System.currentTimeMillis()
-                    while(progress < 1f) {
-                        delay(16)
-                        progress = (System.currentTimeMillis() - startTime) / 3000f
-                    }
-                    expandedVideo = false
+                if (showHistoryBottomSheet) {
+                    HistoryCalendarSheet(
+                        recordedDates = recordedDates,
+                        onDismiss = { showHistoryBottomSheet = false },
+                        onDateSelected = { selectedDate ->
+                            showHistoryBottomSheet = false
+                            selectedHistoryDate = selectedDate
+                        }
+                    )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xCC000000))
-                        .clickable { expandedVideo = false },
-                    contentAlignment = Alignment.Center
-                ) {
+                if (expandedVideo && recordedThumbnail != null) {
+                    var progress by remember { mutableFloatStateOf(0f) }
+
+                    LaunchedEffect(Unit) {
+                        val startTime = System.currentTimeMillis()
+                        while(progress < 1f) {
+                            delay(16)
+                            progress = (System.currentTimeMillis() - startTime) / 3000f
+                        }
+                        expandedVideo = false
+                    }
+
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .aspectRatio(0.6f)
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(Color.Black)
+                            .fillMaxSize()
+                            .background(Color(0xCC000000))
+                            .clickable { expandedVideo = false },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            bitmap = recordedThumbnail!!.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.85f)
+                                .aspectRatio(0.6f)
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(Color.Black)
+                        ) {
+                            Image(
+                                bitmap = recordedThumbnail!!.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
 
-                        if (captionText.isNotEmpty()) {
-                            Text(
-                                text = captionText,
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
+                            if (captionText.isNotEmpty()) {
+                                Text(
+                                    text = captionText,
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(horizontal = 24.dp)
+                                )
+                            }
+
+                            Box(
                                 modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .padding(horizontal = 24.dp)
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .align(Alignment.BottomCenter)
+                                    .background(Color.White.copy(alpha = 0.3f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progress)
+                                        .fillMaxHeight()
+                                        .background(Color(0xFFFF33FF))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HistoryPagerView(
+    date: LocalDate,
+    onClose: () -> Unit,
+    currentUserName: String
+) {
+    val formatter = DateTimeFormatter.ofPattern("yyyy년 M월 d일")
+    val title = date.format(formatter)
+
+    val historyTimes = listOf("15:00", "18:00")
+    val pagerState = rememberPagerState(pageCount = { historyTimes.size })
+
+    val memberList = listOf(
+        SetlogMember("사용자1", Color(0xFFFF33FF), false),
+        SetlogMember("사용자2", Color(0xFF5AC8FA), false),
+        SetlogMember(currentUserName, Color(0xFF5AC8FA), true)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF2F2F7))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color.White, CircleShape)
+                    .border(1.dp, Color(0xFFE5E5EA), CircleShape)
+                    .align(Alignment.CenterStart)
+                    .clickable { onClose() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowLeft,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            Text(
+                text = title,
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Black,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            repeat(historyTimes.size) { iteration ->
+                val color = if (pagerState.currentPage == iteration) Color.Black else Color.LightGray
+                Box(
+                    modifier = Modifier
+                        .padding(4.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                        .size(8.dp)
+                )
+            }
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val pageTime = historyTimes[page]
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                memberList.forEachIndexed { index, member ->
+                    var cardWidthDp by remember { mutableStateOf(0.dp) }
+                    var cardHeightDp by remember { mutableStateOf(0.dp) }
+                    val density = LocalDensity.current
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .background(Color(0xFFEBEBEB), RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                            .onGloballyPositioned { coordinates ->
+                                with(density) {
+                                    cardWidthDp = coordinates.size.width.toDp()
+                                    cardHeightDp = coordinates.size.height.toDp()
+                                }
+                            }
+                    ) {
+                        if (cardWidthDp > 0.dp && cardHeightDp > 0.dp) {
+                            FloatingBall(
+                                memberIndex = index,
+                                totalMembers = memberList.size,
+                                containerWidth = cardWidthDp,
+                                containerHeight = cardHeightDp
                             )
                         }
 
-                        Box(
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = pageTime,
+                                color = Color(0xFFD1D1D6),
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
+                        Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .align(Alignment.BottomCenter)
-                                .background(Color.White.copy(alpha = 0.3f))
+                                .padding(16.dp)
+                                .align(Alignment.TopStart),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(progress)
-                                    .fillMaxHeight()
-                                    .background(Color(0xFFFF33FF))
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = member.name,
+                                color = Color.DarkGray,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -552,7 +800,7 @@ fun FloatingBall(
     containerWidth: Dp,
     containerHeight: Dp
 ) {
-    val ballSize = 64.dp
+    val ballSize = 80.dp
     val maxOffsetX = ((containerWidth - ballSize) / 2).value
     val maxOffsetY = ((containerHeight - ballSize) / 2).value
 
@@ -562,22 +810,21 @@ fun FloatingBall(
     var speedX by remember { mutableFloatStateOf((Random.nextFloat() * 45f + 30f) * if (Random.nextBoolean()) 1f else -1f) }
     var speedY by remember { mutableFloatStateOf((Random.nextFloat() * 45f + 30f) * if (Random.nextBoolean()) 1f else -1f) }
 
-    var colorStep by remember { mutableStateOf(0) }
+    val presetColors = listOf(
+        Color(0xFF5A6CFA),
+        Color(0xFFE25AFA),
+        Color(0xFFFAAD5A)
+    )
+
+    val animatedColor = presetColors[memberIndex % presetColors.size]
 
     LaunchedEffect(containerWidth, containerHeight) {
         var lastTime = withFrameNanos { it }
-        var colorTimer = 0f
 
         while (true) {
             withFrameNanos { time ->
                 val deltaSec = (time - lastTime) / 1_000_000_000f
                 lastTime = time
-
-                colorTimer += deltaSec
-                if (colorTimer >= 0.8f) {
-                    colorTimer = 0f
-                    colorStep = (colorStep + 1) % totalMembers
-                }
 
                 var nextX = offsetX + (speedX * deltaSec)
                 var nextY = offsetY + (speedY * deltaSec)
@@ -604,11 +851,6 @@ fun FloatingBall(
         }
     }
 
-    val baseHue = (360f / totalMembers) * memberIndex
-    val stepHue = (360f / totalMembers) * colorStep
-    val currentHue = (baseHue + stepHue) % 360f
-    val animatedColor = Color.hsv(currentHue, 0.65f, 0.9f)
-
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -620,20 +862,20 @@ fun FloatingBall(
         ) {
             drawCircle(color = animatedColor)
 
-            val dynamicEyeRadius = size.width * 0.06f
+            val dynamicEyeRadius = size.width * 0.05f
 
             drawCircle(
                 color = Color.Black,
                 radius = dynamicEyeRadius,
-                center = Offset(size.width * 0.35f, size.height * 0.65f)
+                center = Offset(size.width * 0.35f, size.height * 0.55f)
             )
             drawCircle(
                 color = Color.Black,
                 radius = dynamicEyeRadius,
-                center = Offset(size.width * 0.65f, size.height * 0.65f)
+                center = Offset(size.width * 0.65f, size.height * 0.55f)
             )
 
-            val dynamicStrokeWidth = size.width * 0.05f
+            val dynamicStrokeWidth = size.width * 0.04f
 
             drawArc(
                 color = Color.Black,
@@ -644,7 +886,7 @@ fun FloatingBall(
                     width = dynamicStrokeWidth,
                     cap = StrokeCap.Round
                 ),
-                topLeft = Offset(size.width * 0.25f, size.height * 0.25f),
+                topLeft = Offset(size.width * 0.25f, size.height * 0.15f),
                 size = Size(size.width * 0.5f, size.height * 0.4f)
             )
         }

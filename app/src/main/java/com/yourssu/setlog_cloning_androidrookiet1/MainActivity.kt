@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourssu.setlog_cloning_androidrookiet1.data.auth.GoogleSignInClient
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthScreen
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthViewModel
+import com.yourssu.setlog_cloning_androidrookiet1.ui.record.RecordScreen
 import com.yourssu.setlog_cloning_androidrookiet1.ui.room.RoomScreen
 import com.yourssu.setlog_cloning_androidrookiet1.ui.room.RoomViewModel
 import com.yourssu.setlog_cloning_androidrookiet1.ui.theme.SetLogCloningAndroidRookieT1Theme
@@ -25,7 +26,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SetLogCloningAndroidRookieT1Theme {
-                SetLogApp()
+                RecordScreen()
             }
         }
     }

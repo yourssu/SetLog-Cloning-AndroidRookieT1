@@ -39,7 +39,7 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color(0xFFF2F2F7))
     ) {
         Box(
             modifier = Modifier
@@ -49,7 +49,8 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .background(Color(0xFF1C1C1E), CircleShape)
+                    .background(Color.White, CircleShape)
+                    .border(1.dp, Color(0xFFE5E5EA), CircleShape)
                     .clickable { onClose() }
                     .align(Alignment.CenterStart),
                 contentAlignment = Alignment.Center
@@ -57,21 +58,22 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowLeft,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = Color.Black,
                     modifier = Modifier.size(28.dp)
                 )
             }
 
             Box(
                 modifier = Modifier
-                    .background(Color(0xFF1C1C1E), RoundedCornerShape(20.dp))
+                    .background(Color.White, RoundedCornerShape(20.dp))
+                    .border(1.dp, Color(0xFFE5E5EA), RoundedCornerShape(20.dp))
                     .padding(horizontal = 24.dp, vertical = 10.dp)
                     .align(Alignment.Center),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = roomName,
-                    color = Color.White,
+                    color = Color.Black,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -94,8 +96,8 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(Color(0xFF1C1C1E), CircleShape)
-                    .border(1.dp, Color(0xFF2C2C2E), CircleShape),
+                    .background(Color.White, CircleShape)
+                    .border(1.dp, Color(0xFFE5E5EA), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.size(28.dp)) {
@@ -133,27 +135,28 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .background(Color(0xFF1C1C1E), RoundedCornerShape(24.dp))
+                    .background(Color.White, RoundedCornerShape(24.dp))
+                    .border(1.dp, Color(0xFFE5E5EA), RoundedCornerShape(24.dp))
                     .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = "메시지",
-                    color = Color(0xFF666666),
+                    color = Color.Gray,
                     fontSize = 16.sp
                 )
 
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(Color(0xFF2C2C2E), CircleShape),
+                        .background(Color(0xFFF2F2F7), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
                         contentDescription = null,
-                        tint = Color(0xFF666666),
+                        tint = Color.Gray,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -165,5 +168,5 @@ fun ChatScreen(roomName: String, onClose: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 fun ChatScreenPreview() {
-    ChatScreen(roomName = "몽글", onClose = {})
+    ChatScreen(roomName = "방", onClose = {})
 }

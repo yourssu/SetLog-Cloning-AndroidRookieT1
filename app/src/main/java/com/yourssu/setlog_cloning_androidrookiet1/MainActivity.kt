@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SetLogCloningAndroidRookieT1Theme {
-                RecordScreen()
+                SetLogApp()
             }
         }
     }

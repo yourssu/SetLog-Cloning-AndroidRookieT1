@@ -28,8 +28,25 @@ class RoomViewModel(
     val uiState: StateFlow<RoomUiState> = _uiState.asStateFlow()
     private var roomsJob: Job? = null
 
+    private val _recordedDates = MutableStateFlow<List<String>>(emptyList())
+    val recordedDates: StateFlow<List<String>> = _recordedDates.asStateFlow()
+
     init {
         observeRooms()
+    }
+
+    fun observeRecords(roomId: String) {
+        viewModelScope.launch {
+            roomRepository.observeRoomRecords(roomId).collect { dates ->
+                _recordedDates.update { dates }
+            }
+        }
+    }
+
+    fun uploadRecord(roomId: String, caption: String, dateHour: String, onSuccess: () -> Unit) {
+        submit(onSuccess) { uid ->
+            roomRepository.uploadRecord(roomId, uid, caption, dateHour)
+        }
     }
 
     fun createRoom(roomName: String, onSuccess: () -> Unit) {

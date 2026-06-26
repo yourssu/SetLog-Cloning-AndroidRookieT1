@@ -3,6 +3,7 @@ package com.yourssu.setlog_cloning_androidrookiet1.data.repository
 import com.google.firebase.firestore.FirebaseFirestore
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.Room
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.RoomMember
+import com.yourssu.setlog_cloning_androidrookiet1.data.model.RoomVideo
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.User
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.UserRoom
 import kotlinx.coroutines.channels.awaitClose
@@ -11,8 +12,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
-class
-RoomRepository(
+class RoomRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
     suspend fun createRoom(uid: String, roomName: String): Result<Unit> = runCatching {
@@ -86,9 +86,46 @@ RoomRepository(
                 val rooms = snapshot?.documents
                     ?.mapNotNull { it.toObject(UserRoom::class.java) }
                     .orEmpty()
+
                 trySend(rooms)
             }
 
+        awaitClose { registration.remove() }
+    }
+
+    suspend fun uploadRecord(roomId: String, uid: String, caption: String, dateHour: String): Result<Unit> = runCatching {
+        val documentId = "${uid}_${dateHour}"
+        val videoRef = db.collection(ROOMS).document(roomId).collection("videos").document(documentId)
+
+        val record = RoomVideo(
+            videoId = documentId,
+            roomId = roomId,
+            uploaderUid = uid,
+            videoUrl = "",
+            caption = caption,
+            date = dateHour
+        )
+
+        val batch = db.batch()
+        batch.set(videoRef, record)
+        batch.commit().await()
+    }
+
+    fun observeRoomRecords(roomId: String): Flow<List<String>> = callbackFlow {
+        val registration = db.collection(ROOMS)
+            .document(roomId)
+            .collection("videos")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val dates = snapshot?.documents
+                    ?.mapNotNull { it.getString("date")?.take(10) }
+                    ?.distinct()
+                    .orEmpty()
+                trySend(dates)
+            }
         awaitClose { registration.remove() }
     }
 

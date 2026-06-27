@@ -6,12 +6,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourssu.setlog_cloning_androidrookiet1.data.auth.GoogleSignInClient
+import com.yourssu.setlog_cloning_androidrookiet1.data.model.UserRoom
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthScreen
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthViewModel
 import com.yourssu.setlog_cloning_androidrookiet1.ui.record.RecordScreen
@@ -41,13 +44,33 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
             key = "room-${authUiState.uid}"
         )
         val roomUiState by roomViewModel.uiState.collectAsStateWithLifecycle()
-        RoomScreen(
-            uiState = roomUiState,
-            userName = authUiState.displayName,
-            onCreateRoom = roomViewModel::createRoom,
-            onJoinRoom = roomViewModel::joinRoom,
-            onLogout = authViewModel::logout
-        )
+        var openedRoom by remember(authUiState.uid) { mutableStateOf<UserRoom?>(null) }
+        val room = openedRoom
+
+        if (room != null) {
+            RecordScreen(
+                roomId = room.roomId,
+                roomName = room.roomName,
+                memberCount = room.memberCount,
+                currentUserName = authUiState.displayName,
+                roomViewModel = roomViewModel,
+                onBack = { openedRoom = null }
+            )
+        } else {
+            RoomScreen(
+                uiState = roomUiState,
+                userName = authUiState.displayName,
+                onCreateRoom = { roomName, memberCount, onSuccess ->
+                    roomViewModel.createRoom(roomName, memberCount, onSuccess)
+                },
+                onJoinRoom = roomViewModel::joinRoom,
+                onOpenRoom = { openedRoom = it },
+                onUploadRecord = { roomId, caption, dateHour, thumbnail, videoUri, onSuccess ->
+                    roomViewModel.uploadRecord(roomId, caption, dateHour, thumbnail, videoUri, onSuccess)
+                },
+                onLogout = authViewModel::logout
+            )
+        }
     } else {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()

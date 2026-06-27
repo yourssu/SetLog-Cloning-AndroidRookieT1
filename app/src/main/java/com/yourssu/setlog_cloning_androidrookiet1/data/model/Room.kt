@@ -8,6 +8,7 @@ data class Room(
     val roomName: String = "",
     val inviteCode: String = "",
     val ownerUid: String = "",
+    val memberCount: Int = 4,
     @ServerTimestamp
     val createdAt: Timestamp? = null
 )

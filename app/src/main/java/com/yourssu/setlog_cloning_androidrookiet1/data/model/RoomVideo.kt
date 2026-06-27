@@ -8,6 +8,7 @@ data class RoomVideo(
     val roomId: String = "",
     val uploaderUid: String = "",
     val videoUrl: String = "",
+    val thumbnailBase64: String = "",
     val caption: String = "",
     val date: String = "",
     @ServerTimestamp

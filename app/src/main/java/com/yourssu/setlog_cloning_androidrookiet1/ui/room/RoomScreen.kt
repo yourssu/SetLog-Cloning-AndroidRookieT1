@@ -3,10 +3,14 @@ package com.yourssu.setlog_cloning_androidrookiet1.ui.room
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.Uri
+import android.util.Log
 import java.io.File
 import androidx.annotation.RawRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -19,7 +23,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -30,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +72,11 @@ import coil.compose.AsyncImage
 import com.yourssu.setlog_cloning_androidrookiet1.R
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.UserRoom
 import com.yourssu.setlog_cloning_androidrookiet1.ui.theme.SetLogCloningAndroidRookieT1Theme
+import kotlinx.coroutines.delay
+import java.util.Calendar
+import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 
 private val HomeBlack = Color.Black
 private val HomeCard = Color(0xFF111111)
@@ -78,6 +91,12 @@ private enum class RoomDialog {
     Join
 }
 
+private enum class RoomFlowScreen {
+    Home,
+    CreateLog,
+    LogCreated
+}
+
 private enum class HomeTab {
     Camera,
     Log
@@ -87,14 +106,37 @@ private enum class HomeTab {
 fun RoomScreen(
     uiState: RoomUiState,
     userName: String,
-    onCreateRoom: (String, () -> Unit) -> Unit,
+    onCreateRoom: (String, Int, () -> Unit) -> Unit,
     onJoinRoom: (String, () -> Unit) -> Unit,
+    onOpenRoom: (UserRoom) -> Unit,
+    onUploadRecord: (String, String, String, Bitmap?, Uri?, () -> Unit) -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var dialog by remember { mutableStateOf<RoomDialog?>(null) }
+    var flowScreen by remember { mutableStateOf(RoomFlowScreen.Home) }
+    var createLogName by remember { mutableStateOf("") }
+    var createdLogName by remember { mutableStateOf("로그 :)") }
+    var selectedMemberCount by remember { mutableIntStateOf(4) }
+    var createdRoomId by remember { mutableStateOf<String?>(null) }
+    var showCreateMenu by remember { mutableStateOf(false) }
+    var showNotifications by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(HomeTab.Log) }
+    var selectedRoomId by remember { mutableStateOf<String?>(null) }
+    var cameraMessage by remember { mutableStateOf<String?>(null) }
+    val timeLabels = rememberCurrentTimeLabels()
+
+    LaunchedEffect(uiState.rooms) {
+        val selectedExists = uiState.rooms.any { it.roomId == selectedRoomId }
+        if (!selectedExists) {
+            selectedRoomId = uiState.rooms.firstOrNull()?.roomId
+        }
+        if (flowScreen == RoomFlowScreen.LogCreated && createdRoomId == null) {
+            createdRoomId = uiState.rooms.lastOrNull { it.roomName == createdLogName }?.roomId
+                ?: uiState.rooms.lastOrNull()?.roomId
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -103,6 +145,7 @@ fun RoomScreen(
     ) {
         val scaleX = maxWidth / 393.dp
         val scaleY = maxHeight / 852.dp
+        val hasTransientPopover = showCreateMenu || showNotifications || showSettings
 
         Box(
             modifier = Modifier
@@ -112,7 +155,7 @@ fun RoomScreen(
                 .border(2.dp, HomePink, RoundedCornerShape(44.dp))
         ) {
             Text(
-                text = if (selectedTab == HomeTab.Camera) "6:50" else "6:49",
+                text = timeLabels.statusTime,
                 modifier = Modifier.offset(43.dp * scaleX, 18.dp * scaleY),
                 color = Color.White,
                 fontSize = 16.sp,
@@ -125,12 +168,72 @@ fun RoomScreen(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
-            if (selectedTab == HomeTab.Camera) {
+            if (flowScreen == RoomFlowScreen.CreateLog) {
+                CreateLogContent(
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    statusTime = timeLabels.statusTime,
+                    logName = createLogName,
+                    selectedMemberCount = selectedMemberCount,
+                    isSubmitting = uiState.isSubmitting,
+                    errorMessage = uiState.errorMessage,
+                    onLogNameChange = { createLogName = it },
+                    onMemberCountChange = { selectedMemberCount = it },
+                    onClose = { flowScreen = RoomFlowScreen.Home },
+                    onConfirm = {
+                        val roomName = createLogName.ifBlank { "로그 :)" }
+                        createdLogName = roomName
+                        onCreateRoom(roomName, selectedMemberCount) {
+                            createdRoomId = null
+                            flowScreen = RoomFlowScreen.LogCreated
+                        }
+                    }
+                )
+            } else if (flowScreen == RoomFlowScreen.LogCreated) {
+                val createdRoom = createdRoomId?.let { id ->
+                    uiState.rooms.firstOrNull { it.roomId == id }
+                } ?: uiState.rooms.lastOrNull { it.roomName == createdLogName }
+                LogCreatedContent(
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    statusTime = timeLabels.statusTime,
+                    roomName = createdRoom?.roomName ?: createdLogName,
+                    inviteCode = createdRoom?.inviteCode ?: "------",
+                    onInvite = { },
+                    onDone = {
+                        flowScreen = RoomFlowScreen.Home
+                        createdRoom?.let(onOpenRoom)
+                    }
+                )
+            } else if (selectedTab == HomeTab.Camera) {
                 CameraContent(
                     scaleX = scaleX,
                     scaleY = scaleY,
+                    currentHourText = timeLabels.hourText,
+                    message = cameraMessage,
                     onClose = { selectedTab = HomeTab.Log },
-                    onCaptureComplete = { selectedTab = HomeTab.Log }
+                    onCaptureComplete = {
+                        val roomId = selectedRoomId ?: uiState.rooms.firstOrNull()?.roomId
+                        if (roomId == null) {
+                            cameraMessage = "사진이 기기에 저장되었습니다."
+                            selectedTab = HomeTab.Log
+                        } else {
+                            cameraMessage = "기록 저장 중..."
+                            onUploadRecord(
+                                roomId,
+                                "",
+                                currentDateHour(),
+                                null,
+                                null
+                            ) {
+                                cameraMessage = "현재 시간 기록이 저장되었습니다."
+                                selectedTab = HomeTab.Log
+                            }
+                        }
+                    },
+                    onCaptureError = { errorMessage ->
+                        cameraMessage = errorMessage
+                    }
                 )
             } else {
                 Text(
@@ -148,16 +251,24 @@ fun RoomScreen(
                     y = 76,
                     scaleX = scaleX,
                     scaleY = scaleY,
-                    onClick = { dialog = RoomDialog.Create }
+                    onClick = {
+                        showCreateMenu = !showCreateMenu
+                        showNotifications = false
+                        showSettings = false
+                    }
                 )
                 HomeActionButton(
                     icon = R.raw.home_notifications,
-                    description = "초대 코드로 참가",
+                    description = "알림함",
                     x = 263,
                     y = 76,
                     scaleX = scaleX,
                     scaleY = scaleY,
-                    onClick = { dialog = RoomDialog.Join }
+                    onClick = {
+                        showNotifications = !showNotifications
+                        showCreateMenu = false
+                        showSettings = false
+                    }
                 )
                 HomeActionButton(
                     icon = R.raw.home_more,
@@ -166,7 +277,11 @@ fun RoomScreen(
                     y = 76,
                     scaleX = scaleX,
                     scaleY = scaleY,
-                    onClick = { showSettings = !showSettings }
+                    onClick = {
+                        showSettings = !showSettings
+                        showCreateMenu = false
+                        showNotifications = false
+                    }
                 )
 
                 HomeAsset(
@@ -221,23 +336,77 @@ fun RoomScreen(
                                 items = uiState.rooms,
                                 key = { it.roomId }
                             ) { room ->
-                                GroupCard(room, scaleX, scaleY)
+                                GroupCard(
+                                    room = room,
+                                    scaleX = scaleX,
+                                    scaleY = scaleY,
+                                    selected = room.roomId == selectedRoomId,
+                                    onClick = {
+                                        selectedRoomId = room.roomId
+                                        onOpenRoom(room)
+                                    }
+                                )
                                 Spacer(modifier = Modifier.height(10.dp * scaleY))
                             }
                         }
                     }
                 }
+
+                if (hasTransientPopover) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                showCreateMenu = false
+                                showNotifications = false
+                                showSettings = false
+                            }
+                    )
+                }
+
+                if (showCreateMenu) {
+                    CreateMenuPopover(
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        onCreateLog = {
+                            showCreateMenu = false
+                            createLogName = ""
+                            selectedMemberCount = 4
+                            flowScreen = RoomFlowScreen.CreateLog
+                        },
+                        onJoinLog = {
+                            showCreateMenu = false
+                            dialog = RoomDialog.Join
+                        },
+                        onStartZip = {
+                            showCreateMenu = false
+                        }
+                    )
+                }
+
+                if (showNotifications) {
+                    NotificationsPopover(
+                        scaleX = scaleX,
+                        scaleY = scaleY
+                    )
+                }
             }
 
-            CameraLogSwitch(
-                selectedTab = selectedTab,
-                scaleX = scaleX,
-                scaleY = scaleY,
-                onSelectTab = { tab ->
-                    selectedTab = tab
-                    if (tab == HomeTab.Camera) showSettings = false
-                }
-            )
+            if (flowScreen == RoomFlowScreen.Home) {
+                CameraLogSwitch(
+                    selectedTab = selectedTab,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    onSelectTab = { tab ->
+                        selectedTab = tab
+                        if (tab == HomeTab.Camera) {
+                            showSettings = false
+                            showCreateMenu = false
+                            showNotifications = false
+                        }
+                    }
+                )
+            }
 
             if (showSettings) {
                 SettingsPopover(
@@ -253,21 +422,526 @@ fun RoomScreen(
         }
     }
 
-    dialog?.let { type ->
-        RoomInputDialog(
-            type = type,
+    if (dialog == RoomDialog.Join) {
+        JoinLogOverlay(
             isSubmitting = uiState.isSubmitting,
             errorMessage = uiState.errorMessage,
             onDismiss = { dialog = null },
-            onConfirm = { input ->
-                val closeDialog = { dialog = null }
-                when (type) {
-                    RoomDialog.Create -> onCreateRoom(input, closeDialog)
-                    RoomDialog.Join -> onJoinRoom(input, closeDialog)
-                }
+            onConfirm = { code ->
+                onJoinRoom(code) { dialog = null }
             }
         )
     }
+}
+
+@Composable
+private fun CreateLogContent(
+    scaleX: Float,
+    scaleY: Float,
+    statusTime: String,
+    logName: String,
+    selectedMemberCount: Int,
+    isSubmitting: Boolean,
+    errorMessage: String?,
+    onLogNameChange: (String) -> Unit,
+    onMemberCountChange: (Int) -> Unit,
+    onClose: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Text(
+        text = "$statusTime                                      66⚡",
+        modifier = Modifier.offset(41.dp * scaleX, 18.dp * scaleY),
+        color = Color.White,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Bold
+    )
+
+    RoundTextAction(
+        text = "×",
+        x = 24,
+        y = 66,
+        size = 44,
+        background = HomeButton,
+        border = HomeBorder,
+        textColor = Color.White,
+        scaleX = scaleX,
+        scaleY = scaleY,
+        onClick = onClose
+    )
+    RoundTextAction(
+        text = "✓",
+        x = 324,
+        y = 66,
+        size = 44,
+        background = HomePink,
+        border = HomePink,
+        textColor = Color.Black,
+        scaleX = scaleX,
+        scaleY = scaleY,
+        enabled = !isSubmitting,
+        onClick = onConfirm
+    )
+
+    Text(
+        text = "SETLOG",
+        modifier = Modifier.offset(153.dp * scaleX, 76.dp * scaleY),
+        color = HomePink,
+        fontSize = 30.sp,
+        fontWeight = FontWeight.Black
+    )
+    Text(
+        text = "→  로그 만들기",
+        modifier = Modifier.offset(38.dp * scaleX, 146.dp * scaleY),
+        color = Color.White,
+        fontSize = 18.sp
+    )
+
+    BasicTextField(
+        value = logName,
+        onValueChange = { onLogNameChange(it.take(18)) },
+        singleLine = true,
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = Color.White,
+            fontSize = 17.sp
+        ),
+        modifier = Modifier
+            .offset(48.dp * scaleX, 200.dp * scaleY)
+            .width(270.dp * scaleX),
+        decorationBox = { innerTextField ->
+            if (logName.isBlank()) {
+                Text(
+                    text = "로그 이름  (선택)",
+                    color = Color(0xFF9E9CA6),
+                    fontSize = 17.sp
+                )
+            }
+            innerTextField()
+        }
+    )
+
+    Text(
+        text = "인원수 선택",
+        modifier = Modifier.offset(38.dp * scaleX, 249.dp * scaleY),
+        color = Color.White,
+        fontSize = 16.sp
+    )
+
+    val counts = (2..12).toList()
+    counts.forEachIndexed { index, count ->
+        val row = index / 6
+        val column = index % 6
+        MemberCountChip(
+            count = count,
+            selected = selectedMemberCount == count,
+            x = 38 + column * 53,
+            y = 297 + row * 49,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            onClick = { onMemberCountChange(count) }
+        )
+    }
+
+    errorMessage?.let {
+        Text(
+            text = it,
+            modifier = Modifier
+                .offset(38.dp * scaleX, 402.dp * scaleY)
+                .width(315.dp * scaleX),
+            color = HomePink,
+            fontSize = 13.sp
+        )
+    }
+}
+
+@Composable
+private fun MemberCountChip(
+    count: Int,
+    selected: Boolean,
+    x: Int,
+    y: Int,
+    scaleX: Float,
+    scaleY: Float,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(x.dp * scaleX, y.dp * scaleY)
+            .size(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) HomePink else Color.Black)
+            .border(
+                width = 1.5.dp,
+                color = if (selected) HomePink else Color(0xFF6B6B70),
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = count.toString(),
+            color = if (selected) Color.Black else Color.White,
+            fontSize = 17.sp
+        )
+    }
+}
+
+@Composable
+private fun LogCreatedContent(
+    scaleX: Float,
+    scaleY: Float,
+    statusTime: String,
+    roomName: String,
+    inviteCode: String,
+    onInvite: () -> Unit,
+    onDone: () -> Unit
+) {
+    Text(
+        text = "$statusTime                                      66⚡",
+        modifier = Modifier.offset(41.dp * scaleX, 18.dp * scaleY),
+        color = Color.White,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Black
+    )
+    Text(
+        text = "SETLOG",
+        modifier = Modifier.offset(153.dp * scaleX, 76.dp * scaleY),
+        color = HomePink,
+        fontSize = 30.sp,
+        fontWeight = FontWeight.Black
+    )
+    Text(
+        text = roomName,
+        modifier = Modifier.offset(38.dp * scaleX, 149.dp * scaleY),
+        color = Color.White,
+        fontSize = 18.sp
+    )
+    Text(
+        text = "#  ${inviteCode.lowercase()}",
+        modifier = Modifier.offset(38.dp * scaleX, 208.dp * scaleY),
+        color = Color.White,
+        fontSize = 18.sp,
+        letterSpacing = 2.sp
+    )
+    Text(
+        text = "친구 초대  →",
+        modifier = Modifier
+            .offset(38.dp * scaleX, 264.dp * scaleY)
+            .clickable(onClick = onInvite),
+        color = Color.White,
+        fontSize = 18.sp,
+        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+    )
+    Text(
+        text = "완료  →",
+        modifier = Modifier
+            .offset(38.dp * scaleX, 326.dp * scaleY)
+            .clickable(onClick = onDone),
+        color = Color.White,
+        fontSize = 18.sp,
+        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+    )
+}
+
+@Composable
+private fun JoinLogOverlay(
+    isSubmitting: Boolean,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var code by remember { mutableStateOf("") }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xD11A1A1A))
+            .clickable(enabled = !isSubmitting, onClick = onDismiss)
+    ) {
+        Column(
+            modifier = Modifier
+                .offset(22.dp, 248.dp)
+                .width(344.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Color.Black.copy(alpha = 0.95f))
+                .padding(horizontal = 30.dp, vertical = 15.dp)
+        ) {
+            Text("로그 참여하기", color = Color.White, fontSize = 20.sp)
+            Text("친구한테 로그 코드를 받으세요", color = HomePink, fontSize = 15.sp)
+        }
+
+        Box(
+            modifier = Modifier
+                .offset(22.dp, 338.dp)
+                .width(344.dp)
+                .height(82.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Color.White)
+                .border(1.5.dp, Color.Black, RoundedCornerShape(30.dp))
+                .clickable(enabled = false) {},
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "#",
+                modifier = Modifier.offset(26.dp, 0.dp),
+                color = Color.Black,
+                fontSize = 28.sp
+            )
+            BasicTextField(
+                value = code,
+                onValueChange = { code = it.uppercase().take(6) },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = Color.Black,
+                    fontSize = 24.sp
+                ),
+                modifier = Modifier
+                    .offset(68.dp, 0.dp)
+                    .width(200.dp),
+                decorationBox = { innerTextField ->
+                    if (code.isBlank()) {
+                        Text("abc123", color = Color(0xFFE0E0E0), fontSize = 24.sp)
+                    }
+                    innerTextField()
+                }
+            )
+            Box(
+                modifier = Modifier
+                    .offset(68.dp, 20.dp)
+                    .width(200.dp)
+                    .height(2.dp)
+                    .background(Color.Black)
+            )
+            Box(
+                modifier = Modifier
+                    .offset(282.dp, 0.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(HomePink)
+                    .clickable(enabled = code.isNotBlank() && !isSubmitting) {
+                        onConfirm(code)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("→", color = Color.Black, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        errorMessage?.let {
+            Text(
+                text = it,
+                modifier = Modifier
+                    .offset(38.dp, 430.dp)
+                    .width(320.dp),
+                color = HomePink,
+                fontSize = 13.sp
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .offset(0.dp, 546.dp)
+                .fillMaxWidth()
+                .height(306.dp)
+                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+                .background(Color(0xFF171717))
+                .padding(start = 18.dp, top = 28.dp)
+        ) {
+            Text("q  w  e  r  t  y  u  i  o  p", color = Color.White, fontSize = 22.sp, letterSpacing = 3.sp)
+            Spacer(Modifier.height(36.dp))
+            Text("a  s  d  f  g  h  j  k  l", color = Color.White, fontSize = 22.sp, letterSpacing = 3.sp, modifier = Modifier.padding(start = 13.dp))
+            Spacer(Modifier.height(36.dp))
+            Text("⇧   z  x  c  v  b  n  m   ⌫", color = Color.White, fontSize = 22.sp, letterSpacing = 3.sp)
+            Spacer(Modifier.height(34.dp))
+            Text("123     space        ✓", color = Color.White, fontSize = 18.sp, letterSpacing = 2.sp)
+        }
+    }
+}
+
+@Composable
+private fun RoundTextAction(
+    text: String,
+    x: Int,
+    y: Int,
+    size: Int,
+    background: Color,
+    border: Color,
+    textColor: Color,
+    scaleX: Float,
+    scaleY: Float,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(x.dp * scaleX, y.dp * scaleY)
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(background)
+            .border(1.dp, border, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text, color = textColor, fontSize = 28.sp)
+    }
+}
+
+@Composable
+private fun CreateMenuPopover(
+    scaleX: Float,
+    scaleY: Float,
+    onCreateLog: () -> Unit,
+    onJoinLog: () -> Unit,
+    onStartZip: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(6.dp * scaleX, 76.dp * scaleY)
+            .width(250.dp * scaleX)
+            .height(166.dp * scaleY)
+            .clip(RoundedCornerShape(34.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xF00D383D),
+                        Color(0xF52E1229),
+                        Color(0xF51A121A)
+                    )
+                )
+            )
+            .border(1.dp, Color(0xFF4D3847), RoundedCornerShape(34.dp))
+    ) {
+        PopoverMenuText(
+            text = "로그 만들기",
+            y = 20,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            onClick = onCreateLog
+        )
+        PopoverMenuText(
+            text = "로그 참여하기",
+            y = 62,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            onClick = onJoinLog
+        )
+        Box(
+            modifier = Modifier
+                .offset(27.dp * scaleX, 101.dp * scaleY)
+                .width(200.dp * scaleX)
+                .height(1.dp)
+                .background(Color(0xFF403840))
+        )
+        PopoverMenuText(
+            text = "zip 시작하기",
+            y = 120,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            onClick = onStartZip
+        )
+    }
+}
+
+@Composable
+private fun PopoverMenuText(
+    text: String,
+    y: Int,
+    scaleX: Float,
+    scaleY: Float,
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .offset(27.dp * scaleX, y.dp * scaleY)
+            .width(200.dp * scaleX)
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp),
+        color = Color.White,
+        fontSize = 17.sp
+    )
+}
+
+@Composable
+private fun NotificationsPopover(
+    scaleX: Float,
+    scaleY: Float
+) {
+    Box(
+        modifier = Modifier
+            .offset(122.dp * scaleX, 76.dp * scaleY)
+            .width(250.dp * scaleX)
+            .height(166.dp * scaleY)
+            .clip(RoundedCornerShape(34.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xF01B1B1B),
+                        Color(0xF5141B22),
+                        Color(0xF52A1229)
+                    )
+                )
+            )
+            .border(1.dp, Color(0xFF4D3847), RoundedCornerShape(34.dp))
+    ) {
+        Text(
+            text = "알림함",
+            modifier = Modifier.offset(27.dp * scaleX, 20.dp * scaleY),
+            color = Color.White,
+            fontSize = 17.sp
+        )
+        Box(
+            modifier = Modifier
+                .offset(27.dp * scaleX, 58.dp * scaleY)
+                .width(196.dp * scaleX)
+                .height(1.dp)
+                .background(Color(0xFF403840))
+        )
+        Text(
+            text = "새 알림이 없어요",
+            modifier = Modifier
+                .offset(27.dp * scaleX, 84.dp * scaleY)
+                .width(196.dp * scaleX),
+            color = HomeMuted,
+            fontSize = 15.sp
+        )
+    }
+}
+
+private data class CurrentTimeLabels(
+    val statusTime: String,
+    val hourText: String
+)
+
+@Composable
+private fun rememberCurrentTimeLabels(): CurrentTimeLabels {
+    var labels by remember { mutableStateOf(currentTimeLabels()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            labels = currentTimeLabels()
+            delay(1_000L)
+        }
+    }
+
+    return labels
+}
+
+private fun currentTimeLabels(): CurrentTimeLabels {
+    val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+    val hour = calendar.get(Calendar.HOUR_OF_DAY)
+    val minute = calendar.get(Calendar.MINUTE)
+
+    return CurrentTimeLabels(
+        statusTime = String.format(Locale.US, "%d:%02d", hour, minute),
+        hourText = String.format(Locale.US, "%02d:00", hour)
+    )
+}
+
+private fun currentDateHour(): String {
+    val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+    val formatter = SimpleDateFormat("yyyy-MM-dd-HH", Locale.KOREA)
+    formatter.timeZone = TimeZone.getTimeZone("Asia/Seoul")
+    return formatter.format(calendar.time)
 }
 
 @Composable
@@ -419,13 +1093,25 @@ private fun PersonalSpaceCards(scaleX: Float, scaleY: Float) {
 }
 
 @Composable
-private fun GroupCard(room: UserRoom, scaleX: Float, scaleY: Float) {
+private fun GroupCard(
+    room: UserRoom,
+    scaleX: Float,
+    scaleY: Float,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier
             .width(369.dp * scaleX)
             .height(80.dp * scaleY)
             .clip(RoundedCornerShape(26.dp))
             .background(HomeCard)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) HomeTeal else HomeBorder,
+                shape = RoundedCornerShape(26.dp)
+            )
+            .clickable(onClick = onClick)
     ) {
         Text(
             text = room.roomName,
@@ -501,12 +1187,18 @@ private fun CameraLogSwitch(
 private fun CameraContent(
     scaleX: Float,
     scaleY: Float,
+    currentHourText: String,
+    message: String?,
     onClose: () -> Unit,
-    onCaptureComplete: () -> Unit
+    onCaptureComplete: () -> Unit,
+    onCaptureError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val isInPreview = LocalInspectionMode.current
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var isFlashEnabled by remember { mutableStateOf(false) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
     val imageCapture = remember {
         ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
@@ -554,7 +1246,22 @@ private fun CameraContent(
         } else if (hasCameraPermission) {
             CameraPreview(
                 lensFacing = lensFacing,
+                zoomRatio = zoomRatio,
+                isFlashEnabled = isFlashEnabled,
                 imageCapture = imageCapture,
+                onCameraReady = { camera ->
+                    boundCamera = camera
+                    val supportedZoomRatio = camera.coerceZoomRatio(zoomRatio)
+                    if (supportedZoomRatio != zoomRatio) {
+                        zoomRatio = supportedZoomRatio
+                    }
+                    if (!camera.cameraInfo.hasFlashUnit()) {
+                        isFlashEnabled = false
+                    }
+                },
+                onCameraError = { errorMessage ->
+                    onCaptureError(errorMessage)
+                },
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -594,7 +1301,7 @@ private fun CameraContent(
         }
 
         Text(
-            text = "18:00",
+            text = currentHourText,
             modifier = Modifier
                 .offset(151.dp * scaleX, 303.dp * scaleY)
                 .rotate(90f),
@@ -603,17 +1310,55 @@ private fun CameraContent(
             fontWeight = FontWeight.Bold
         )
 
-        CameraZoomLabel(".5", 116, 553, Color.White.copy(alpha = 0.75f), false, scaleX, scaleY)
-        CameraZoomLabel("1", 164, 556, Color(0xFFFFC700), true, scaleX, scaleY)
-        CameraZoomLabel("2", 212, 556, Color.White.copy(alpha = 0.8f), false, scaleX, scaleY)
-        CameraZoomLabel("3", 260, 556, Color.White.copy(alpha = 0.8f), false, scaleX, scaleY)
+        message?.let {
+            Text(
+                text = it,
+                modifier = Modifier
+                    .offset(42.dp * scaleX, 364.dp * scaleY)
+                    .width(290.dp * scaleX),
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
 
-        Text(
-            text = "⚡",
-            modifier = Modifier.offset(97.dp * scaleX, 610.dp * scaleY),
-            color = Color.White,
-            fontSize = 26.sp
-        )
+        CameraZoomLabel(".5", 116, 553, zoomRatio == 0.5f, scaleX, scaleY) {
+            zoomRatio = boundCamera?.coerceZoomRatio(0.5f) ?: 0.5f
+        }
+        CameraZoomLabel("1", 164, 556, zoomRatio == 1f, scaleX, scaleY) {
+            zoomRatio = boundCamera?.coerceZoomRatio(1f) ?: 1f
+        }
+        CameraZoomLabel("2", 212, 556, zoomRatio == 2f, scaleX, scaleY) {
+            zoomRatio = boundCamera?.coerceZoomRatio(2f) ?: 2f
+        }
+        CameraZoomLabel("3", 260, 556, zoomRatio == 3f, scaleX, scaleY) {
+            zoomRatio = boundCamera?.coerceZoomRatio(3f) ?: 3f
+        }
+
+        Box(
+            modifier = Modifier
+                .offset(84.dp * scaleX, 596.dp * scaleY)
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(Color(0x66111111))
+                .clickable(
+                    enabled = boundCamera?.cameraInfo?.hasFlashUnit() == true
+                ) {
+                    isFlashEnabled = !isFlashEnabled
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "⚡",
+                color = when {
+                    isFlashEnabled -> Color(0xFFFFC700)
+                    boundCamera?.cameraInfo?.hasFlashUnit() == true -> Color.White
+                    else -> Color.White.copy(alpha = 0.35f)
+                },
+                fontSize = 26.sp
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -626,7 +1371,9 @@ private fun CameraContent(
                     takeSetLogPhoto(
                         context = context,
                         imageCapture = imageCapture,
-                        onCaptureComplete = onCaptureComplete
+                        isFlashEnabled = isFlashEnabled,
+                        onCaptureComplete = onCaptureComplete,
+                        onCaptureError = onCaptureError
                     )
                 },
             contentAlignment = Alignment.Center
@@ -641,7 +1388,22 @@ private fun CameraContent(
         }
     }
 
-    CameraRoundAction("↻", 37, 772, scaleX, scaleY)
+    CameraRoundAction(
+        label = "↻",
+        x = 37,
+        y = 772,
+        scaleX = scaleX,
+        scaleY = scaleY,
+        onClick = {
+            lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                CameraSelector.LENS_FACING_FRONT
+            } else {
+                CameraSelector.LENS_FACING_BACK
+            }
+            zoomRatio = 1f
+            isFlashEnabled = false
+        }
+    )
     CameraRoundAction(
         label = "⤢",
         x = 307,
@@ -654,6 +1416,8 @@ private fun CameraContent(
             } else {
                 CameraSelector.LENS_FACING_BACK
             }
+            zoomRatio = 1f
+            isFlashEnabled = false
         }
     )
 }
@@ -661,7 +1425,9 @@ private fun CameraContent(
 private fun takeSetLogPhoto(
     context: Context,
     imageCapture: ImageCapture,
-    onCaptureComplete: () -> Unit
+    isFlashEnabled: Boolean,
+    onCaptureComplete: () -> Unit,
+    onCaptureError: (String) -> Unit
 ) {
     val photoFile = File.createTempFile(
         "setlog_${System.currentTimeMillis()}_",
@@ -669,6 +1435,11 @@ private fun takeSetLogPhoto(
         context.cacheDir
     )
     val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+    imageCapture.flashMode = if (isFlashEnabled) {
+        ImageCapture.FLASH_MODE_ON
+    } else {
+        ImageCapture.FLASH_MODE_OFF
+    }
 
     imageCapture.takePicture(
         outputOptions,
@@ -678,7 +1449,9 @@ private fun takeSetLogPhoto(
                 onCaptureComplete()
             }
 
-            override fun onError(exception: ImageCaptureException) = Unit
+            override fun onError(exception: ImageCaptureException) {
+                onCaptureError(exception.localizedMessage ?: "촬영에 실패했습니다.")
+            }
         }
     )
 }
@@ -703,11 +1476,16 @@ private fun CameraPreviewPlaceholder() {
 @Composable
 private fun CameraPreview(
     lensFacing: Int,
+    zoomRatio: Float,
+    isFlashEnabled: Boolean,
     imageCapture: ImageCapture,
+    onCameraReady: (Camera) -> Unit,
+    onCameraError: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var camera by remember { mutableStateOf<Camera?>(null) }
     val previewView = remember {
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -734,16 +1512,15 @@ private fun CameraPreview(
                     selector,
                     preview,
                     imageCapture
-                )
-            }.recoverCatching {
-                val fallbackSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    fallbackSelector,
-                    preview,
-                    imageCapture
-                )
+                ).also {
+                    camera = it
+                    onCameraReady(it)
+                    Log.d("SetLogCamera", "Bound ${lensFacing.cameraLabel()} camera")
+                }
+            }.onFailure { error ->
+                val message = "${lensFacing.cameraLabel()} 카메라를 열지 못했습니다."
+                Log.e("SetLogCamera", message, error)
+                onCameraError(message)
             }
         }
 
@@ -751,7 +1528,20 @@ private fun CameraPreview(
 
         onDispose {
             runCatching {
+                camera = null
                 cameraProviderFuture.get().unbindAll()
+            }
+        }
+    }
+
+    LaunchedEffect(camera, zoomRatio) {
+        camera?.setSafeZoomRatio(zoomRatio)
+    }
+
+    LaunchedEffect(camera, isFlashEnabled) {
+        camera?.let {
+            if (it.cameraInfo.hasFlashUnit()) {
+                it.cameraControl.enableTorch(isFlashEnabled)
             }
         }
     }
@@ -767,20 +1557,44 @@ private fun CameraZoomLabel(
     text: String,
     x: Int,
     y: Int,
-    color: Color,
     selected: Boolean,
     scaleX: Float,
-    scaleY: Float
+    scaleY: Float,
+    onClick: () -> Unit
 ) {
-    Text(
-        text = text,
+    Box(
         modifier = Modifier
-            .offset(x.dp * scaleX, y.dp * scaleY)
-            .rotate(-90f),
-        color = color,
-        fontSize = 13.sp,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-    )
+            .offset((x - 14).dp * scaleX, (y - 14).dp * scaleY)
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.rotate(-90f),
+            color = if (selected) Color(0xFFFFC700) else Color.White.copy(alpha = 0.8f),
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+private fun Camera.setSafeZoomRatio(requestedRatio: Float) {
+    cameraControl.setZoomRatio(coerceZoomRatio(requestedRatio))
+}
+
+private fun Camera.coerceZoomRatio(requestedRatio: Float): Float {
+    val zoomState = cameraInfo.zoomState.value
+    val minZoom = zoomState?.minZoomRatio ?: 1f
+    val maxZoom = zoomState?.maxZoomRatio ?: requestedRatio
+    return requestedRatio.coerceIn(minZoom, maxZoom)
+}
+
+private fun Int.cameraLabel(): String = when (this) {
+    CameraSelector.LENS_FACING_FRONT -> "front"
+    CameraSelector.LENS_FACING_BACK -> "back"
+    else -> "unknown"
 }
 
 @Composable
@@ -936,8 +1750,10 @@ private fun RoomScreenPreview() {
                 isLoading = false
             ),
             userName = "User",
-            onCreateRoom = { _, _ -> },
+            onCreateRoom = { _, _, onSuccess -> onSuccess() },
             onJoinRoom = { _, _ -> },
+            onOpenRoom = {},
+            onUploadRecord = { _, _, _, _, _, onSuccess -> onSuccess() },
             onLogout = {}
         )
     }

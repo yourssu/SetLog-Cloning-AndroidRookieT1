@@ -7,6 +7,7 @@ data class UserRoom(
     val roomId: String = "",
     val roomName: String = "",
     val inviteCode: String = "",
+    val memberCount: Int = 4,
     @ServerTimestamp
     val joinedAt: Timestamp? = null
 )

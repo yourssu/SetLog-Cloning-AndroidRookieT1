@@ -1,6 +1,8 @@
 package com.yourssu.setlog_cloning_androidrookiet1.data.repository
 
+import android.net.Uri
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.Room
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.RoomMember
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.RoomVideo
@@ -13,9 +15,10 @@ import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
 class RoomRepository(
-    private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
+    private val storage: FirebaseStorage = FirebaseStorage.getInstance()
 ) {
-    suspend fun createRoom(uid: String, roomName: String): Result<Unit> = runCatching {
+    suspend fun createRoom(uid: String, roomName: String, memberCount: Int): Result<Unit> = runCatching {
         val user = getUser(uid)
         val roomRef = db.collection(ROOMS).document()
         val inviteCode = createUniqueInviteCode()
@@ -23,7 +26,8 @@ class RoomRepository(
             roomId = roomRef.id,
             roomName = roomName.trim(),
             inviteCode = inviteCode,
-            ownerUid = uid
+            ownerUid = uid,
+            memberCount = memberCount
         )
 
         val batch = db.batch()
@@ -34,7 +38,12 @@ class RoomRepository(
         )
         batch.set(
             db.collection(USERS).document(uid).collection(ROOMS).document(roomRef.id),
-            UserRoom(roomId = roomRef.id, roomName = room.roomName, inviteCode = inviteCode)
+            UserRoom(
+                roomId = roomRef.id,
+                roomName = room.roomName,
+                inviteCode = inviteCode,
+                memberCount = memberCount
+            )
         )
         batch.commit().await()
     }
@@ -58,6 +67,13 @@ class RoomRepository(
         if (memberRef.get().await().exists()) {
             error("이미 참여 중인 방입니다.")
         }
+        val currentMemberCount = roomSnapshot.reference.collection(MEMBERS)
+            .get()
+            .await()
+            .size()
+        if (currentMemberCount >= room.memberCount) {
+            error("방 인원이 가득 찼습니다.")
+        }
 
         val batch = db.batch()
         batch.set(memberRef, RoomMember(uid = uid, nickname = user.nickname))
@@ -66,7 +82,8 @@ class RoomRepository(
             UserRoom(
                 roomId = room.roomId,
                 roomName = room.roomName,
-                inviteCode = room.inviteCode
+                inviteCode = room.inviteCode,
+                memberCount = room.memberCount
             )
         )
         batch.commit().await()
@@ -93,15 +110,30 @@ class RoomRepository(
         awaitClose { registration.remove() }
     }
 
-    suspend fun uploadRecord(roomId: String, uid: String, caption: String, dateHour: String): Result<Unit> = runCatching {
+    suspend fun uploadRecord(
+        roomId: String,
+        uid: String,
+        caption: String,
+        dateHour: String,
+        thumbnailBase64: String,
+        videoUri: Uri?
+    ): Result<Unit> = runCatching {
         val documentId = "${uid}_${dateHour}"
         val videoRef = db.collection(ROOMS).document(roomId).collection("videos").document(documentId)
+        val videoUrl = videoUri?.let { uri ->
+            runCatching {
+                val storageRef = storage.reference.child("rooms/$roomId/videos/$documentId.mp4")
+                storageRef.putFile(uri).await()
+                storageRef.downloadUrl.await().toString()
+            }.getOrDefault("")
+        }.orEmpty()
 
         val record = RoomVideo(
             videoId = documentId,
             roomId = roomId,
             uploaderUid = uid,
-            videoUrl = "",
+            videoUrl = videoUrl,
+            thumbnailBase64 = thumbnailBase64,
             caption = caption,
             date = dateHour
         )
@@ -126,6 +158,58 @@ class RoomRepository(
                     .orEmpty()
                 trySend(dates)
             }
+        awaitClose { registration.remove() }
+    }
+
+    fun observeMyRoomRecords(roomId: String, uid: String): Flow<List<RoomVideo>> = callbackFlow {
+        val registration = db.collection(ROOMS)
+            .document(roomId)
+            .collection("videos")
+            .whereEqualTo("uploaderUid", uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                val records = snapshot?.documents
+                    ?.mapNotNull { it.toObject(RoomVideo::class.java) }
+                    .orEmpty()
+
+                trySend(records)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun observeRoomMembers(roomId: String): Flow<List<RoomMember>> = callbackFlow {
+        val room = db.collection(ROOMS)
+            .document(roomId)
+            .get()
+            .await()
+            .toObject(Room::class.java)
+        val ownerUid = room?.ownerUid.orEmpty()
+
+        val registration = db.collection(ROOMS)
+            .document(roomId)
+            .collection(MEMBERS)
+            .orderBy("joinedAt")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                val members = snapshot?.documents
+                    ?.mapNotNull { it.toObject(RoomMember::class.java) }
+                    ?.sortedWith(
+                        compareByDescending<RoomMember> { it.uid == ownerUid }
+                            .thenBy { it.joinedAt?.seconds ?: Long.MAX_VALUE }
+                    )
+                    .orEmpty()
+
+                trySend(members)
+            }
+
         awaitClose { registration.remove() }
     }
 

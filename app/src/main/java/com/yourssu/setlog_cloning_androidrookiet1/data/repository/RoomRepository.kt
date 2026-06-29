@@ -143,6 +143,11 @@ class RoomRepository(
         batch.commit().await()
     }
 
+    suspend fun deleteRecord(roomId: String, videoId: String): Result<Unit> = runCatching {
+        val storageRef = storage.reference.child("rooms/$roomId/videos/$videoId.mp4")
+        runCatching { storageRef.delete().await() }
+        db.collection(ROOMS).document(roomId).collection("videos").document(videoId).delete().await()
+    }
     fun observeRoomRecords(roomId: String): Flow<List<String>> = callbackFlow {
         val registration = db.collection(ROOMS)
             .document(roomId)

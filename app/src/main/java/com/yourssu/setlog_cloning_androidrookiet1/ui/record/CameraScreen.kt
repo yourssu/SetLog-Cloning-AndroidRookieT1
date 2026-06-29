@@ -509,5 +509,5 @@ private fun Int.cameraLabel(): String = when (this) {
 @Preview(showBackground = true)
 @Composable
 fun CameraScreenPreview() {
-    CameraScreen(roomName = "기머쮜", onClose = {}, onVideoRecorded = { _, _ -> })
+    CameraScreen(roomName = "방1", onClose = {}, onVideoRecorded = { _, _ -> })
 }

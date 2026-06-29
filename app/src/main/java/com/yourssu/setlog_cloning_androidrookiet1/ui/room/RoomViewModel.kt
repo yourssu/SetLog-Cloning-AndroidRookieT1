@@ -129,6 +129,15 @@ class RoomViewModel(
         }
     }
 
+    fun deleteRecord(roomId: String, dateHour: String) {
+        val uid = authRepository.getCurrentUid() ?: return
+        val videoId = "${uid}_${dateHour}"
+
+        viewModelScope.launch {
+            roomRepository.deleteRecord(roomId, videoId)
+        }
+    }
+
     fun createRoom(roomName: String, memberCount: Int = 4, onSuccess: () -> Unit) {
         submit(onSuccess) { uid ->
             require(roomName.isNotBlank()) { "방 이름을 입력해주세요." }

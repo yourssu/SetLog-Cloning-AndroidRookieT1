@@ -397,6 +397,14 @@ fun RecordScreen(
                                     showMenu = false
                                 },
                                 onDelete = {
+                                    val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul"))
+                                    cal.set(Calendar.HOUR_OF_DAY, viewedHour)
+                                    val sdf = SimpleDateFormat("yyyy-MM-dd-HH", Locale.KOREA).apply {
+                                        timeZone = TimeZone.getTimeZone("Asia/Seoul")
+                                    }
+                                    val dateHourStr = sdf.format(cal.time)
+
+                                    roomViewModel.deleteRecord(roomId, dateHourStr)
                                     localRecords = localRecords.toMutableMap().apply { remove(viewedHour) }
                                     showMenu = false
                                 },

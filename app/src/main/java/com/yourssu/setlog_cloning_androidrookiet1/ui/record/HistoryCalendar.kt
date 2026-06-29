@@ -164,12 +164,10 @@ fun HistoryCalendar(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (hasRecord) {
-                                        // 기록이 있는 날은 선명한 스마일 아이콘을 보여줍니다.
                                         SmallSmileIcon(alpha = 1.0f)
                                     } else {
                                         Text(
                                             text = dayNumber.toString(),
-                                            // 미래의 날짜이거나 오늘/과거 중 기록이 없는 날짜는 색상을 선명한 블랙보다 연하게(Color(0xFFD1D1D6)) 처리합니다.
                                             color = if (isFuture) {
                                                 Color(0xFFE5E5EA)
                                             } else if (isToday) {

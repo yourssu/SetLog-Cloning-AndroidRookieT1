@@ -58,6 +58,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +113,9 @@ fun RoomScreen(
     onJoinRoom: (String, () -> Unit) -> Unit,
     onOpenRoom: (UserRoom) -> Unit,
     onUploadRecord: (String, String, String, Bitmap?, Uri?, () -> Unit) -> Unit,
+    onUpdateProfileName: (String, () -> Unit) -> Unit,
+    onUpdateProfileColor: (String) -> Unit,
+    onUpdateProfileImage: (Uri) -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -122,15 +128,24 @@ fun RoomScreen(
     var showCreateMenu by remember { mutableStateOf(false) }
     var showNotifications by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showNameEditor by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(HomeTab.Log) }
     var selectedRoomId by remember { mutableStateOf<String?>(null) }
     var cameraMessage by remember { mutableStateOf<String?>(null) }
     val timeLabels = rememberCurrentTimeLabels()
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                onUpdateProfileImage(uri)
+            }
+        }
+    )
 
     LaunchedEffect(uiState.rooms) {
         val selectedExists = uiState.rooms.any { it.roomId == selectedRoomId }
         if (!selectedExists) {
-            selectedRoomId = uiState.rooms.firstOrNull()?.roomId
+            selectedRoomId = null
         }
         if (flowScreen == RoomFlowScreen.LogCreated && createdRoomId == null) {
             createdRoomId = uiState.rooms.lastOrNull { it.roomName == createdLogName }?.roomId
@@ -410,9 +425,13 @@ fun RoomScreen(
 
             if (showSettings) {
                 SettingsPopover(
-                    userName = userName,
+                    profile = uiState.profile,
+                    fallbackUserName = userName,
                     scaleX = scaleX,
                     scaleY = scaleY,
+                    onEditName = { showNameEditor = true },
+                    onChangeImage = { photoPickerLauncher.launch("image/*") },
+                    onSelectColor = onUpdateProfileColor,
                     onLogout = {
                         showSettings = false
                         onLogout()
@@ -429,6 +448,19 @@ fun RoomScreen(
             onDismiss = { dialog = null },
             onConfirm = { code ->
                 onJoinRoom(code) { dialog = null }
+            }
+        )
+    }
+
+    if (showNameEditor) {
+        ProfileNameEditor(
+            currentName = uiState.profile.name.ifBlank { userName },
+            isSubmitting = uiState.isSubmitting,
+            onDismiss = { showNameEditor = false },
+            onSave = { newName ->
+                onUpdateProfileName(newName) {
+                    showNameEditor = false
+                }
             }
         )
     }
@@ -946,37 +978,34 @@ private fun currentDateHour(): String {
 
 @Composable
 private fun SettingsPopover(
-    userName: String,
+    profile: RoomProfileUi,
+    fallbackUserName: String,
     scaleX: Float,
     scaleY: Float,
+    onEditName: () -> Unit,
+    onChangeImage: () -> Unit,
+    onSelectColor: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    var isProfileExpanded by remember { mutableStateOf(true) }
+    var isColorExpanded by remember { mutableStateOf(false) }
+    val profileName = profile.name.ifBlank { fallbackUserName.ifBlank { "User" } }
+
     Box(
         modifier = Modifier
             .offset(91.dp * scaleX, 78.dp * scaleY)
             .width(272.dp * scaleX)
-            .height(220.dp * scaleY)
+            .height((if (isProfileExpanded && isColorExpanded) 505 else if (isProfileExpanded) 250 else 220).dp * scaleY)
             .clip(RoundedCornerShape(34.dp))
             .background(Color(0xF5291226))
             .border(1.dp, Color(0xFF8C2E82), RoundedCornerShape(34.dp))
     ) {
-        Box(
-            modifier = Modifier
-                .offset(19.dp * scaleX, 16.dp * scaleY)
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(HomePink),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "♫",
-                color = Color(0xFF291226),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        ProfileAvatar(
+            profile = profile,
+            modifier = Modifier.offset(19.dp * scaleX, 16.dp * scaleY)
+        )
         Text(
-            text = userName.ifBlank { "User" },
+            text = profileName,
             modifier = Modifier
                 .offset(57.dp * scaleX, 17.dp * scaleY)
                 .width(180.dp * scaleX),
@@ -986,11 +1015,62 @@ private fun SettingsPopover(
             maxLines = 1
         )
 
-        SettingsMenuItem("♙", "프로필 편집", true, 54, scaleX, scaleY)
-        SettingsMenuItem("♧", "로그 알림", true, 85, scaleX, scaleY)
-        SettingsMenuItem("◉", "계정 관리", true, 116, scaleX, scaleY)
-        SettingsMenuItem("⊕", "피드백 보내기", false, 147, scaleX, scaleY)
-        SettingsMenuItem("↪", "로그아웃", false, 178, scaleX, scaleY, onClick = onLogout)
+        SettingsMenuItem(
+            icon = "♙",
+            label = "프로필 편집",
+            showChevron = true,
+            expanded = isProfileExpanded,
+            y = 54,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            onClick = { isProfileExpanded = !isProfileExpanded }
+        )
+
+        if (isProfileExpanded) {
+            Box(
+                modifier = Modifier
+                    .offset(27.dp * scaleX, 92.dp * scaleY)
+                    .width(210.dp * scaleX)
+                    .height(1.dp)
+                    .background(Color(0xFF403840))
+            )
+            ProfileEditText(
+                text = "이름",
+                y = 121,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                onClick = onEditName
+            )
+            ProfileEditText(
+                text = "변경",
+                y = 162,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                onClick = onChangeImage
+            )
+            ProfileEditText(
+                text = "프로필 색상",
+                y = 203,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                trailing = if (isColorExpanded) "⌄" else "›",
+                onClick = { isColorExpanded = !isColorExpanded }
+            )
+
+            if (isColorExpanded) {
+                ProfileColorSelector(
+                    selectedColorName = profile.colorName,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    onSelectColor = onSelectColor
+                )
+            }
+        } else {
+            SettingsMenuItem("♧", "로그 알림", true, false, 85, scaleX, scaleY)
+            SettingsMenuItem("◉", "계정 관리", true, false, 116, scaleX, scaleY)
+            SettingsMenuItem("⊕", "피드백 보내기", false, false, 147, scaleX, scaleY)
+            SettingsMenuItem("↪", "로그아웃", false, false, 178, scaleX, scaleY, onClick = onLogout)
+        }
     }
 }
 
@@ -999,6 +1079,7 @@ private fun SettingsMenuItem(
     icon: String,
     label: String,
     showChevron: Boolean,
+    expanded: Boolean,
     y: Int,
     scaleX: Float,
     scaleY: Float,
@@ -1031,12 +1112,257 @@ private fun SettingsMenuItem(
         )
         if (showChevron) {
             Text(
-                text = "›",
-                modifier = Modifier.offset(218.dp * scaleX, (-1).dp * scaleY),
+                text = if (expanded) "⌄" else "›",
+                modifier = Modifier.offset(218.dp * scaleX, (-3).dp * scaleY),
                 color = Color.White,
                 fontSize = 24.sp
             )
         }
+    }
+}
+
+@Composable
+private fun ProfileAvatar(
+    profile: RoomProfileUi,
+    modifier: Modifier = Modifier
+) {
+    val avatarColor = profileColorOf(profile.colorName)
+
+    Box(
+        modifier = modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(avatarColor),
+        contentAlignment = Alignment.Center
+    ) {
+        if (profile.imageUrl.isNotBlank()) {
+            AsyncImage(
+                model = profile.imageUrl,
+                contentDescription = "프로필 이미지",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                text = "♫",
+                color = Color(0xFF291226),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileEditText(
+    text: String,
+    y: Int,
+    scaleX: Float,
+    scaleY: Float,
+    trailing: String? = null,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(30.dp * scaleX, y.dp * scaleY)
+            .width(216.dp * scaleX)
+            .height(33.dp * scaleY)
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = 18.sp
+        )
+        trailing?.let {
+            Text(
+                text = it,
+                modifier = Modifier.offset(190.dp * scaleX, (-5).dp * scaleY),
+                color = Color.White,
+                fontSize = 28.sp
+            )
+        }
+    }
+}
+
+private data class ProfileColorOption(
+    val name: String,
+    val label: String,
+    val color: Color
+)
+
+private val ProfileColors = listOf(
+    ProfileColorOption("cyan", "파랑", Color(0xFF18C9E8)),
+    ProfileColorOption("orange", "주황", Color(0xFFFF8757)),
+    ProfileColorOption("purple", "보라", Color(0xFFAA5AF4)),
+    ProfileColorOption("green", "초록", Color(0xFF00E879)),
+    ProfileColorOption("blue", "바다", Color(0xFF479CF5)),
+    ProfileColorOption("pink", "분홍", HomePink)
+)
+
+@Composable
+private fun ProfileColorSelector(
+    selectedColorName: String,
+    scaleX: Float,
+    scaleY: Float,
+    onSelectColor: (String) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(27.dp * scaleX, 254.dp * scaleY)
+            .width(210.dp * scaleX)
+            .height(1.dp)
+            .background(Color(0xFF403840))
+    )
+    ProfileColors.forEachIndexed { index, option ->
+        val y = 278 + index * 47
+        Box(
+            modifier = Modifier
+                .offset(30.dp * scaleX, y.dp * scaleY)
+                .width(216.dp * scaleX)
+                .height(38.dp * scaleY)
+                .clickable { onSelectColor(option.name) }
+        ) {
+            if (selectedColorName == option.name) {
+                Text(
+                    text = "✓",
+                    modifier = Modifier.offset(0.dp, 3.dp * scaleY),
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .offset(38.dp * scaleX, 3.dp * scaleY)
+                    .size(25.dp)
+                    .clip(CircleShape)
+                    .background(option.color)
+            )
+            Text(
+                text = option.label,
+                modifier = Modifier.offset(82.dp * scaleX, 0.dp),
+                color = Color.White,
+                fontSize = 20.sp
+            )
+        }
+    }
+}
+
+private fun profileColorOf(colorName: String): Color {
+    return ProfileColors.firstOrNull { it.name == colorName }?.color ?: HomePink
+}
+
+@Composable
+private fun ProfileNameEditor(
+    currentName: String,
+    isSubmitting: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var name by remember(currentName) { mutableStateOf(currentName) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xA6000000))
+            .clickable(enabled = !isSubmitting, onClick = onDismiss),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .offset(y = 216.dp)
+                .width(344.dp)
+                .height(232.dp)
+                .clip(RoundedCornerShape(32.dp))
+                .background(Color(0xF0262628))
+                .border(1.dp, Color(0xFF57545C), RoundedCornerShape(32.dp))
+                .clickable {}
+        ) {
+            Text(
+                text = "이름 편집",
+                modifier = Modifier.offset(31.dp, 28.dp),
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "이름을 입력하세요",
+                modifier = Modifier.offset(31.dp, 67.dp),
+                color = Color(0xFFAAA7B0),
+                fontSize = 17.sp
+            )
+            Box(
+                modifier = Modifier
+                    .offset(31.dp, 110.dp)
+                    .width(282.dp)
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color(0xFF3A3A3D)),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = name,
+                    onValueChange = { name = it.take(16) },
+                    singleLine = true,
+                    enabled = !isSubmitting,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.White,
+                        fontSize = 20.sp
+                    ),
+                    modifier = Modifier
+                        .padding(horizontal = 18.dp)
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                )
+            }
+            ProfileNameButton(
+                text = "취소",
+                x = 31,
+                background = Color(0xFF343437),
+                enabled = !isSubmitting,
+                onClick = onDismiss
+            )
+            ProfileNameButton(
+                text = if (isSubmitting) "저장 중" else "저장",
+                x = 193,
+                background = HomePink,
+                enabled = name.isNotBlank() && !isSubmitting,
+                onClick = { onSave(name.trim()) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileNameButton(
+    text: String,
+    x: Int,
+    background: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .offset(x.dp, 178.dp)
+            .width(120.dp)
+            .height(52.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(background.copy(alpha = if (enabled) 1f else 0.55f))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -1754,6 +2080,9 @@ private fun RoomScreenPreview() {
             onJoinRoom = { _, _ -> },
             onOpenRoom = {},
             onUploadRecord = { _, _, _, _, _, onSuccess -> onSuccess() },
+            onUpdateProfileName = { _, onSuccess -> onSuccess() },
+            onUpdateProfileColor = {},
+            onUpdateProfileImage = {},
             onLogout = {}
         )
     }

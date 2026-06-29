@@ -2,6 +2,7 @@ package com.yourssu.setlog_cloning_androidrookiet1.data.repository
 
 import android.net.Uri
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.Room
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.RoomMember
@@ -89,6 +90,36 @@ class RoomRepository(
         batch.commit().await()
     }
 
+    suspend fun updateJoinedRoomMemberNicknames(uid: String, nickname: String): Result<Unit> = runCatching {
+        val joinedRooms = db.collection(USERS)
+            .document(uid)
+            .collection(ROOMS)
+            .get()
+            .await()
+
+        joinedRooms.documents
+            .chunked(MAX_BATCH_WRITES)
+            .forEach { documents ->
+                val batch = db.batch()
+                documents.forEach { document ->
+                    val roomId = document.id
+                    val memberRef = db.collection(ROOMS)
+                        .document(roomId)
+                        .collection(MEMBERS)
+                        .document(uid)
+                    batch.set(
+                        memberRef,
+                        mapOf(
+                            "uid" to uid,
+                            "nickname" to nickname.trim()
+                        ),
+                        SetOptions.merge()
+                    )
+                }
+                batch.commit().await()
+            }
+    }
+
     fun observeUserRooms(uid: String): Flow<List<UserRoom>> = callbackFlow {
         val registration = db.collection(USERS)
             .document(uid)
@@ -120,13 +151,14 @@ class RoomRepository(
     ): Result<Unit> = runCatching {
         val documentId = "${uid}_${dateHour}"
         val videoRef = db.collection(ROOMS).document(roomId).collection("videos").document(documentId)
-        val videoUrl = videoUri?.let { uri ->
-            runCatching {
-                val storageRef = storage.reference.child("rooms/$roomId/videos/$documentId.mp4")
-                storageRef.putFile(uri).await()
-                storageRef.downloadUrl.await().toString()
-            }.getOrDefault("")
-        }.orEmpty()
+        val existingRecord = videoRef.get().await().toObject(RoomVideo::class.java)
+        val videoUrl = if (videoUri != null) {
+            val storageRef = storage.reference.child("rooms/$roomId/videos/$documentId.mp4")
+            storageRef.putFile(videoUri).await()
+            storageRef.downloadUrl.await().toString()
+        } else {
+            existingRecord?.videoUrl.orEmpty()
+        }
 
         val record = RoomVideo(
             videoId = documentId,
@@ -251,5 +283,6 @@ class RoomRepository(
         const val MEMBERS = "members"
         const val INVITE_CODE_LENGTH = 6
         const val MAX_INVITE_CODE_ATTEMPTS = 5
+        const val MAX_BATCH_WRITES = 500
     }
 }

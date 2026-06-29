@@ -1,9 +1,11 @@
 package com.yourssu.setlog_cloning_androidrookiet1.data.repository
 
+import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.User
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +16,7 @@ class AuthRepository {
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseFirestore.getInstance()
+    private val storage = FirebaseStorage.getInstance()
 
     fun getCurrentUser() = auth.currentUser
 
@@ -34,6 +37,27 @@ class AuthRepository {
         }
         auth.addAuthStateListener(listener)
         awaitClose { auth.removeAuthStateListener(listener) }
+    }
+
+    fun observeCurrentUserProfile(): Flow<User?> = callbackFlow {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+
+        val registration = db.collection(USERS)
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.toObject(User::class.java))
+            }
+
+        awaitClose { registration.remove() }
     }
 
     suspend fun signUp(
@@ -103,5 +127,36 @@ class AuthRepository {
 
     fun logout() {
         auth.signOut()
+    }
+
+    suspend fun updateProfileName(name: String): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: error("로그인이 필요합니다.")
+        db.collection(USERS)
+            .document(uid)
+            .update("nickname", name.trim())
+            .await()
+    }
+
+    suspend fun updateProfileColor(colorName: String): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: error("로그인이 필요합니다.")
+        db.collection(USERS)
+            .document(uid)
+            .update("profileColor", colorName)
+            .await()
+    }
+
+    suspend fun updateProfileImage(imageUri: Uri): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid ?: error("로그인이 필요합니다.")
+        val imageRef = storage.reference.child("users/$uid/profile.jpg")
+        imageRef.putFile(imageUri).await()
+        val downloadUrl = imageRef.downloadUrl.await().toString()
+        db.collection(USERS)
+            .document(uid)
+            .update("profileImageUrl", downloadUrl)
+            .await()
+    }
+
+    private companion object {
+        const val USERS = "users"
     }
 }

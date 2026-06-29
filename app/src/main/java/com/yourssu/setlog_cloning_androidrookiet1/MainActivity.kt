@@ -72,6 +72,7 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
             key = "room-${authUiState.uid}"
         )
         val roomUiState by roomViewModel.uiState.collectAsStateWithLifecycle()
+        val currentUserName = roomUiState.profile.name.ifBlank { authUiState.displayName }
         var activeRoom by remember(authUiState.uid) { mutableStateOf<UserRoom?>(null) }
         var showRoomList by remember(authUiState.uid) { mutableStateOf(false) }
         var hasAttemptedCreate by remember(authUiState.uid) { mutableStateOf(false) }
@@ -92,7 +93,7 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
             showRoomList -> {
                 RoomScreen(
                     uiState = roomUiState,
-                    userName = authUiState.displayName,
+                    userName = currentUserName,
                     onCreateRoom = { roomName, memberCount, onSuccess ->
                         roomViewModel.createRoom(roomName, memberCount, onSuccess)
                     },
@@ -111,6 +112,9 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
                             onSuccess
                         )
                     },
+                    onUpdateProfileName = roomViewModel::updateProfileName,
+                    onUpdateProfileColor = roomViewModel::updateProfileColor,
+                    onUpdateProfileImage = roomViewModel::updateProfileImage,
                     onLogout = authViewModel::logout
                 )
             }
@@ -121,7 +125,7 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
                     roomId = room.roomId,
                     roomName = room.roomName,
                     memberCount = room.memberCount,
-                    currentUserName = authUiState.displayName,
+                    currentUserName = currentUserName,
                     roomViewModel = roomViewModel,
                     onBack = { showRoomList = true }
                 )

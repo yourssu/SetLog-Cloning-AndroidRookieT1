@@ -26,7 +26,14 @@ data class RoomUiState(
     val rooms: List<UserRoom> = emptyList(),
     val isLoading: Boolean = true,
     val isSubmitting: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val profile: RoomProfileUi = RoomProfileUi()
+)
+
+data class RoomProfileUi(
+    val name: String = "User",
+    val colorName: String = "pink",
+    val imageUrl: String = ""
 )
 
 data class RoomRecordUi(
@@ -50,6 +57,7 @@ class RoomViewModel(
     val uiState: StateFlow<RoomUiState> = _uiState.asStateFlow()
     private var roomsJob: Job? = null
     private var recordsJob: Job? = null
+    private var profileJob: Job? = null
 
     private val _recordedDates = MutableStateFlow<List<String>>(emptyList())
     val recordedDates: StateFlow<List<String>> = _recordedDates.asStateFlow()
@@ -62,6 +70,7 @@ class RoomViewModel(
 
     init {
         observeRooms()
+        observeProfile()
     }
 
     fun observeRecords(roomId: String) {
@@ -156,6 +165,65 @@ class RoomViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    fun updateProfileName(name: String, onSuccess: () -> Unit = {}) {
+        if (_uiState.value.isSubmitting) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val trimmedName = name.trim()
+            val uid = authRepository.getCurrentUid()
+            val result = if (uid == null) {
+                Result.failure(IllegalStateException("로그인이 필요합니다."))
+            } else {
+                authRepository.updateProfileName(trimmedName)
+            }
+
+            result.fold(
+                onSuccess = {
+                    _uiState.update { state ->
+                        state.copy(
+                            isSubmitting = false,
+                            profile = state.profile.copy(name = trimmedName)
+                        )
+                    }
+                    onSuccess()
+                    uid?.let {
+                        roomRepository.updateJoinedRoomMemberNicknames(it, trimmedName)
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = error.localizedMessage ?: "이름을 저장하지 못했습니다."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun updateProfileColor(colorName: String) {
+        _uiState.update { it.copy(profile = it.profile.copy(colorName = colorName)) }
+        viewModelScope.launch {
+            authRepository.updateProfileColor(colorName).onFailure { error ->
+                _uiState.update {
+                    it.copy(errorMessage = error.localizedMessage ?: "프로필 색상을 저장하지 못했습니다.")
+                }
+            }
+        }
+    }
+
+    fun updateProfileImage(imageUri: Uri) {
+        _uiState.update { it.copy(profile = it.profile.copy(imageUrl = imageUri.toString())) }
+        viewModelScope.launch {
+            authRepository.updateProfileImage(imageUri).onFailure { error ->
+                _uiState.update {
+                    it.copy(errorMessage = error.localizedMessage ?: "프로필 이미지를 저장하지 못했습니다.")
+                }
+            }
+        }
+    }
+
     private fun observeRooms() {
         val uid = authRepository.getCurrentUid() ?: run {
             _uiState.update { it.copy(isLoading = false) }
@@ -174,6 +242,31 @@ class RoomViewModel(
                 }
                 .collect { rooms ->
                     _uiState.update { it.copy(rooms = rooms, isLoading = false) }
+                }
+        }
+    }
+
+    private fun observeProfile() {
+        profileJob?.cancel()
+        profileJob = viewModelScope.launch {
+            authRepository.observeCurrentUserProfile()
+                .catch { error ->
+                    _uiState.update {
+                        it.copy(errorMessage = error.localizedMessage ?: "프로필을 불러오지 못했습니다.")
+                    }
+                }
+                .collect { user ->
+                    if (user != null) {
+                        _uiState.update {
+                            it.copy(
+                                profile = RoomProfileUi(
+                                    name = user.nickname.ifBlank { authRepository.getCurrentDisplayName() },
+                                    colorName = user.profileColor.ifBlank { "pink" },
+                                    imageUrl = user.profileImageUrl
+                                )
+                            )
+                        }
+                    }
                 }
         }
     }

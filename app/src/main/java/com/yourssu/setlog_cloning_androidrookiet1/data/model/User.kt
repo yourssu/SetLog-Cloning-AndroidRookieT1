@@ -7,6 +7,8 @@ data class User(
     val uid: String = "",
     val email: String = "",
     val nickname: String = "",
+    val profileColor: String = "pink",
+    val profileImageUrl: String = "",
     @ServerTimestamp
     val createdAt: Timestamp? = null
 )

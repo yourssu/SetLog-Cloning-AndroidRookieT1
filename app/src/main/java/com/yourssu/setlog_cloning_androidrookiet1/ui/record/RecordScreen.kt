@@ -31,8 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.North
 import androidx.compose.material.icons.outlined.Delete
@@ -44,6 +44,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -74,10 +75,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.yourssu.setlog_cloning_androidrookiet1.ui.room.RoomRecordUi
 import com.yourssu.setlog_cloning_androidrookiet1.ui.room.RoomViewModel
 import kotlinx.coroutines.delay
@@ -270,7 +276,7 @@ fun RecordScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.KeyboardArrowLeft,
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                     contentDescription = null,
                                     tint = Color.Black,
                                     modifier = Modifier.size(28.dp)
@@ -440,72 +446,91 @@ fun RecordScreen(
                 }
 
                 if (expandedVideo) {
-                    val thumbnail = myRecords[viewedHour]?.thumbnail
-                    if (thumbnail != null) {
-                        var progress by remember { mutableFloatStateOf(0f) }
+                    val record = myRecords[viewedHour]
+                    val videoSource = record?.videoUri ?: record?.videoUrl
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(Uri::parse)
 
-                        LaunchedEffect(Unit) {
-                            val startTime = System.currentTimeMillis()
-                            while(progress < 1f) {
-                                delay(16)
-                                progress = (System.currentTimeMillis() - startTime) / 3000f
-                            }
+                    if (videoSource != null) {
+                        VideoPlayerOverlay(
+                            videoUri = videoSource,
+                            caption = record?.caption.orEmpty(),
+                            onDismiss = { expandedVideo = false }
+                        )
+                    } else {
+                        LaunchedEffect(record) {
+                            Toast.makeText(context, "재생할 영상이 없습니다.", Toast.LENGTH_SHORT).show()
                             expandedVideo = false
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xCC000000))
-                                .clickable { expandedVideo = false },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .aspectRatio(0.6f)
-                                    .clip(RoundedCornerShape(32.dp))
-                                    .background(Color.Black)
-                            ) {
-                                Image(
-                                    bitmap = thumbnail.asImageBitmap(),
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-
-                                val caption = myRecords[viewedHour]?.caption ?: ""
-                                if (caption.isNotEmpty()) {
-                                    Text(
-                                        text = caption,
-                                        color = Color.White,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier
-                                            .align(Alignment.Center)
-                                            .padding(horizontal = 24.dp)
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .align(Alignment.BottomCenter)
-                                        .background(Color.White.copy(alpha = 0.3f))
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(progress)
-                                            .fillMaxHeight()
-                                            .background(Color(0xFFFF33FF))
-                                    )
-                                }
-                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoPlayerOverlay(
+    videoUri: Uri,
+    caption: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val player = remember(videoUri) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(videoUri))
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xCC000000))
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .aspectRatio(0.6f)
+                .clip(RoundedCornerShape(32.dp))
+                .background(Color.Black)
+                .clickable(enabled = false) {},
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    }
+                },
+                update = { playerView ->
+                    playerView.player = player
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            if (caption.isNotEmpty()) {
+                Text(
+                    text = caption,
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                )
             }
         }
     }
@@ -926,7 +951,7 @@ fun HistoryPagerView(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowLeft,
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                     contentDescription = null,
                     tint = Color.Black,
                     modifier = Modifier.size(28.dp)

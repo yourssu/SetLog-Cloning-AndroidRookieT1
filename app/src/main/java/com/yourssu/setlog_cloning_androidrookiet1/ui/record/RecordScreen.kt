@@ -511,7 +511,7 @@ private fun VideoPlayerOverlay(
                     PlayerView(viewContext).apply {
                         this.player = player
                         useController = true
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
                     }
                 },
                 update = { playerView ->

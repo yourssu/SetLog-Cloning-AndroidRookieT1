@@ -120,13 +120,14 @@ class RoomRepository(
     ): Result<Unit> = runCatching {
         val documentId = "${uid}_${dateHour}"
         val videoRef = db.collection(ROOMS).document(roomId).collection("videos").document(documentId)
-        val videoUrl = videoUri?.let { uri ->
-            runCatching {
-                val storageRef = storage.reference.child("rooms/$roomId/videos/$documentId.mp4")
-                storageRef.putFile(uri).await()
-                storageRef.downloadUrl.await().toString()
-            }.getOrDefault("")
-        }.orEmpty()
+        val existingRecord = videoRef.get().await().toObject(RoomVideo::class.java)
+        val videoUrl = if (videoUri != null) {
+            val storageRef = storage.reference.child("rooms/$roomId/videos/$documentId.mp4")
+            storageRef.putFile(videoUri).await()
+            storageRef.downloadUrl.await().toString()
+        } else {
+            existingRecord?.videoUrl.orEmpty()
+        }
 
         val record = RoomVideo(
             videoId = documentId,

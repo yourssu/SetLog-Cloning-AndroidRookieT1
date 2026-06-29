@@ -68,6 +68,9 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
                 onUploadRecord = { roomId, caption, dateHour, thumbnail, videoUri, onSuccess ->
                     roomViewModel.uploadRecord(roomId, caption, dateHour, thumbnail, videoUri, onSuccess)
                 },
+                onUpdateProfileName = roomViewModel::updateProfileName,
+                onUpdateProfileColor = roomViewModel::updateProfileColor,
+                onUpdateProfileImage = roomViewModel::updateProfileImage,
                 onLogout = authViewModel::logout
             )
         }

@@ -160,15 +160,26 @@ class RoomViewModel(
         if (_uiState.value.isSubmitting) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            authRepository.updateProfileName(name).fold(
+            val trimmedName = name.trim()
+            val uid = authRepository.getCurrentUid()
+            val result = if (uid == null) {
+                Result.failure(IllegalStateException("로그인이 필요합니다."))
+            } else {
+                authRepository.updateProfileName(trimmedName)
+            }
+
+            result.fold(
                 onSuccess = {
                     _uiState.update { state ->
                         state.copy(
                             isSubmitting = false,
-                            profile = state.profile.copy(name = name.trim())
+                            profile = state.profile.copy(name = trimmedName)
                         )
                     }
                     onSuccess()
+                    uid?.let {
+                        roomRepository.updateJoinedRoomMemberNicknames(it, trimmedName)
+                    }
                 },
                 onFailure = { error ->
                     _uiState.update {

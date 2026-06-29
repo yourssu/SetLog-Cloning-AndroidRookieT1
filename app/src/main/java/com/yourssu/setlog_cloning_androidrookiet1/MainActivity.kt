@@ -46,20 +46,21 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
         val roomUiState by roomViewModel.uiState.collectAsStateWithLifecycle()
         var openedRoom by remember(authUiState.uid) { mutableStateOf<UserRoom?>(null) }
         val room = openedRoom
+        val currentUserName = roomUiState.profile.name.ifBlank { authUiState.displayName }
 
         if (room != null) {
             RecordScreen(
                 roomId = room.roomId,
                 roomName = room.roomName,
                 memberCount = room.memberCount,
-                currentUserName = authUiState.displayName,
+                currentUserName = currentUserName,
                 roomViewModel = roomViewModel,
                 onBack = { openedRoom = null }
             )
         } else {
             RoomScreen(
                 uiState = roomUiState,
-                userName = authUiState.displayName,
+                userName = currentUserName,
                 onCreateRoom = { roomName, memberCount, onSuccess ->
                     roomViewModel.createRoom(roomName, memberCount, onSuccess)
                 },

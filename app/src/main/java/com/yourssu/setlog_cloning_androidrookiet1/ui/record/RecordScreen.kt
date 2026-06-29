@@ -225,7 +225,7 @@ fun RecordScreen(
                     .take(memberCount)
                     .mapIndexed { index, member ->
                         SetlogMember(
-                            name = member.name,
+                            name = if (member.isCurrentUser) currentUserName else member.name,
                             color = if (index == 0) Color(0xFFFF33FF) else Color(0xFF5AC8FA),
                             isCurrentUser = member.isCurrentUser,
                             recordedHours = if (member.isCurrentUser) myRecords.keys.toList() else emptyList()

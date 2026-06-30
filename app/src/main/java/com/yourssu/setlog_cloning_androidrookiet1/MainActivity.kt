@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourssu.setlog_cloning_androidrookiet1.data.auth.GoogleSignInClient
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.UserRoom
+import com.yourssu.setlog_cloning_androidrookiet1.data.repository.NotificationRepository
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthScreen
 import com.yourssu.setlog_cloning_androidrookiet1.ui.auth.AuthViewModel
 import com.yourssu.setlog_cloning_androidrookiet1.ui.record.RecordScreen
@@ -36,19 +37,53 @@ import com.yourssu.setlog_cloning_androidrookiet1.ui.theme.SetLogCloningAndroidR
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_OPEN_NOTIFICATIONS = "open_notifications"
+        const val EXTRA_NOTIFICATION_ID = "notification_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 앱 시작 시 저장된 알림 불러오기
+        NotificationRepository.init(this)
+
+        val openNotifications = intent.getBooleanExtra(EXTRA_OPEN_NOTIFICATIONS, false)
+        val notificationId = intent.getStringExtra(EXTRA_NOTIFICATION_ID)
+
+        // 알림 탭으로 열렸을 경우 해당 알림을 읽음 처리
+        if (openNotifications && notificationId != null) {
+            NotificationRepository.markAsRead(this, notificationId)
+        }
+
         setContent {
             SetLogCloningAndroidRookieT1Theme {
-                SetLogApp()
+                SetLogApp(
+                    initialOpenNotifications = openNotifications
+                )
             }
+        }
+    }
+
+    // 앱이 이미 실행 중인 상태에서 알림을 탭한 경우
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        val notificationId = intent.getStringExtra(EXTRA_NOTIFICATION_ID)
+        if (notificationId != null) {
+            NotificationRepository.markAsRead(this, notificationId)
         }
     }
 }
 
 @Composable
-private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
+private fun SetLogApp(
+    authViewModel: AuthViewModel = viewModel(),
+    initialOpenNotifications: Boolean = false
+) {
     val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -94,6 +129,7 @@ private fun SetLogApp(authViewModel: AuthViewModel = viewModel()) {
                 RoomScreen(
                     uiState = roomUiState,
                     userName = currentUserName,
+                    initialOpenNotifications = initialOpenNotifications,
                     onCreateRoom = { roomName, memberCount, onSuccess ->
                         roomViewModel.createRoom(roomName, memberCount, onSuccess)
                     },

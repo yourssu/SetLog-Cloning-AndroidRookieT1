@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -39,7 +40,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,12 +77,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.yourssu.setlog_cloning_androidrookiet1.R
+import com.yourssu.setlog_cloning_androidrookiet1.data.alarm.HourlyAlarmReceiver
+import com.yourssu.setlog_cloning_androidrookiet1.data.alarm.LOG_ALARM_MINUTE_OPTIONS
+import com.yourssu.setlog_cloning_androidrookiet1.data.alarm.LogAlarmInterval
+import com.yourssu.setlog_cloning_androidrookiet1.data.alarm.LogAlarmSettings
+import com.yourssu.setlog_cloning_androidrookiet1.data.model.NotificationItem
 import com.yourssu.setlog_cloning_androidrookiet1.data.model.UserRoom
+import com.yourssu.setlog_cloning_androidrookiet1.data.repository.LogAlarmSettingsRepository
+import com.yourssu.setlog_cloning_androidrookiet1.data.repository.NotificationRepository
 import com.yourssu.setlog_cloning_androidrookiet1.ui.theme.SetLogCloningAndroidRookieT1Theme
 import kotlinx.coroutines.delay
+import java.text.DateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.TimeZone
@@ -109,6 +125,7 @@ private enum class HomeTab {
 fun RoomScreen(
     uiState: RoomUiState,
     userName: String,
+    initialOpenNotifications: Boolean = false,
     onCreateRoom: (String, Int, () -> Unit) -> Unit,
     onJoinRoom: (String, () -> Unit) -> Unit,
     onOpenRoom: (UserRoom) -> Unit,
@@ -126,13 +143,16 @@ fun RoomScreen(
     var selectedMemberCount by remember { mutableIntStateOf(4) }
     var createdRoomId by remember { mutableStateOf<String?>(null) }
     var showCreateMenu by remember { mutableStateOf(false) }
-    var showNotifications by remember { mutableStateOf(false) }
+    var showNotifications by remember { mutableStateOf(initialOpenNotifications) }
+    val notifications by NotificationRepository.notifications.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+    var showLogAlarmSheet by remember { mutableStateOf(false) }
     var showNameEditor by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(HomeTab.Log) }
     var selectedRoomId by remember { mutableStateOf<String?>(null) }
     var cameraMessage by remember { mutableStateOf<String?>(null) }
     val timeLabels = rememberCurrentTimeLabels()
+    val context = LocalContext.current
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
@@ -402,7 +422,11 @@ fun RoomScreen(
                 if (showNotifications) {
                     NotificationsPopover(
                         scaleX = scaleX,
-                        scaleY = scaleY
+                        scaleY = scaleY,
+                        notifications = notifications,
+                        onMarkRead = { id ->
+                            NotificationRepository.markAsRead(context, id)
+                        }
                     )
                 }
             }
@@ -432,9 +456,25 @@ fun RoomScreen(
                     onEditName = { showNameEditor = true },
                     onChangeImage = { photoPickerLauncher.launch("image/*") },
                     onSelectColor = onUpdateProfileColor,
+                    onLogAlarmClick = {
+                        showSettings = false
+                        showLogAlarmSheet = true
+                    },
                     onLogout = {
                         showSettings = false
                         onLogout()
+                    }
+                )
+            }
+
+            if (showLogAlarmSheet) {
+                LogAlarmBottomSheet(
+                    initialSettings = remember { LogAlarmSettingsRepository.get(context) },
+                    onDismiss = { showLogAlarmSheet = false },
+                    onSave = { settings ->
+                        LogAlarmSettingsRepository.save(context, settings)
+                        HourlyAlarmReceiver.scheduleNextAlarm(context)
+                        showLogAlarmSheet = false
                     }
                 )
             }
@@ -896,13 +936,15 @@ private fun PopoverMenuText(
 @Composable
 private fun NotificationsPopover(
     scaleX: Float,
-    scaleY: Float
+    scaleY: Float,
+    notifications: List<NotificationItem>,
+    onMarkRead: (String) -> Unit
 ) {
     Box(
         modifier = Modifier
             .offset(122.dp * scaleX, 76.dp * scaleY)
             .width(250.dp * scaleX)
-            .height(166.dp * scaleY)
+            .wrapContentHeight()
             .clip(RoundedCornerShape(34.dp))
             .background(
                 Brush.linearGradient(
@@ -915,27 +957,93 @@ private fun NotificationsPopover(
             )
             .border(1.dp, Color(0xFF4D3847), RoundedCornerShape(34.dp))
     ) {
-        Text(
-            text = "알림함",
-            modifier = Modifier.offset(27.dp * scaleX, 20.dp * scaleY),
-            color = Color.White,
-            fontSize = 17.sp
-        )
+        Column(modifier = Modifier.padding(horizontal = 27.dp * scaleX)) {
+            Text(
+                text = "알림함",
+                modifier = Modifier.padding(top = 20.dp * scaleY),
+                color = Color.White,
+                fontSize = 17.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp * scaleY))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0xFF403840))
+            )
+            Spacer(modifier = Modifier.height(8.dp * scaleY))
+
+            if (notifications.isEmpty()) {
+                Text(
+                    text = "새 알림이 없어요",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp * scaleY),
+                    color = HomeMuted,
+                    fontSize = 15.sp
+                )
+            } else {
+                notifications.take(5).forEach { item ->
+                    NotificationRow(
+                        item = item,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        onMarkRead = onMarkRead
+                    )
+                    Spacer(modifier = Modifier.height(4.dp * scaleY))
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp * scaleY))
+        }
+    }
+}
+
+@Composable
+private fun NotificationRow(
+    item: NotificationItem,
+    scaleX: Float,
+    scaleY: Float,
+    onMarkRead: (String) -> Unit
+) {
+    val timeLabel = remember(item.timestamp) {
+        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(item.timestamp))
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (item.isRead) Color.Transparent else Color(0x1A00D3C8)
+            )
+            .clickable {
+                if (!item.isRead) onMarkRead(item.id)
+            }
+            .padding(vertical = 8.dp * scaleY),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Box(
             modifier = Modifier
-                .offset(27.dp * scaleX, 58.dp * scaleY)
-                .width(196.dp * scaleX)
-                .height(1.dp)
-                .background(Color(0xFF403840))
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(
+                    if (item.isRead) Color.Transparent else Color(0xFF00D3C8)
+                )
         )
-        Text(
-            text = "새 알림이 없어요",
-            modifier = Modifier
-                .offset(27.dp * scaleX, 84.dp * scaleY)
-                .width(196.dp * scaleX),
-            color = HomeMuted,
-            fontSize = 15.sp
-        )
+        Spacer(modifier = Modifier.width(8.dp * scaleX))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.body,
+                color = if (item.isRead) HomeMuted else Color.White,
+                fontSize = 13.sp,
+                maxLines = 2
+            )
+            Text(
+                text = timeLabel,
+                color = HomeMuted,
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -985,6 +1093,7 @@ private fun SettingsPopover(
     onEditName: () -> Unit,
     onChangeImage: () -> Unit,
     onSelectColor: (String) -> Unit,
+    onLogAlarmClick: () -> Unit,
     onLogout: () -> Unit
 ) {
     var isProfileExpanded by remember { mutableStateOf(true) }
@@ -1066,7 +1175,7 @@ private fun SettingsPopover(
                 )
             }
         } else {
-            SettingsMenuItem("♧", "로그 알림", true, false, 85, scaleX, scaleY)
+            SettingsMenuItem("♧", "로그 알림", true, false, 85, scaleX, scaleY, onClick = onLogAlarmClick)
             SettingsMenuItem("◉", "계정 관리", true, false, 116, scaleX, scaleY)
             SettingsMenuItem("⊕", "피드백 보내기", false, false, 147, scaleX, scaleY)
             SettingsMenuItem("↪", "로그아웃", false, false, 178, scaleX, scaleY, onClick = onLogout)
@@ -1117,6 +1226,130 @@ private fun SettingsMenuItem(
                 color = Color.White,
                 fontSize = 24.sp
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LogAlarmBottomSheet(
+    initialSettings: LogAlarmSettings,
+    onDismiss: () -> Unit,
+    onSave: (LogAlarmSettings) -> Unit
+) {
+    var selectedInterval by remember { mutableStateOf(initialSettings.interval) }
+    var selectedMinute by remember { mutableStateOf(initialSettings.minute) }
+    var intervalExpanded by remember { mutableStateOf(false) }
+    var minuteExpanded by remember { mutableStateOf(false) }
+    val isOff = selectedInterval == LogAlarmInterval.OFF
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1C1620)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            Text(
+                text = "로그 알림",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(text = "주기", color = Color(0xFFB9AEB8), fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            ExposedDropdownMenuBox(
+                expanded = intervalExpanded,
+                onExpandedChange = { intervalExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedInterval.label,
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = intervalExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF8C2E82),
+                        unfocusedBorderColor = Color(0xFF403840)
+                    ),
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = intervalExpanded,
+                    onDismissRequest = { intervalExpanded = false }
+                ) {
+                    LogAlarmInterval.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                selectedInterval = option
+                                intervalExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(text = "분", color = Color(0xFFB9AEB8), fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            ExposedDropdownMenuBox(
+                expanded = minuteExpanded && !isOff,
+                onExpandedChange = { if (!isOff) minuteExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = String.format(Locale.US, "%02d", selectedMinute),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = !isOff,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = minuteExpanded && !isOff) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        disabledTextColor = Color(0xFF6E646C),
+                        focusedBorderColor = Color(0xFF8C2E82),
+                        unfocusedBorderColor = Color(0xFF403840),
+                        disabledBorderColor = Color(0xFF2A222A)
+                    ),
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = minuteExpanded && !isOff,
+                    onDismissRequest = { minuteExpanded = false }
+                ) {
+                    LOG_ALARM_MINUTE_OPTIONS.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(String.format(Locale.US, "%02d", option)) },
+                            onClick = {
+                                selectedMinute = option
+                                minuteExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            TextButton(
+                onClick = {
+                    onSave(LogAlarmSettings(interval = selectedInterval, minute = selectedMinute))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "저장", color = Color(0xFFE85DD0), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
